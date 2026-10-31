@@ -77,6 +77,30 @@ with uniform keys per category.
   customer is told the 24 business-hour response window of policy 7.3. The summary the agent writes is
   stored as given, so it should avoid unnecessary personal data.
 
+## Policy text and prompt decisions (slice 5)
+
+- **Extraction.** `pypdf`'s default mode returns one word per line (1,755 lines of 1.0 word), which
+  destroys headings, lists and tables. The `layout` mode (201 lines, 8.7 words per line) keeps them. The
+  text is then tidied in code: page footers ("Página N") and the header repeated on every page are
+  dropped, table columns are separated by ` | `, bullets become `- ` lines, numbered steps and subsection
+  titles stay on their own line, lines wrapped inside a table cell or a bullet are joined back, and runs
+  of blank lines collapse. The meaning of the manual is never rewritten.
+- **Typo fixed in the text:** the e-mail written with an accent (`contato@empóriodamusica.com.br`).
+- **Phone conflict** is settled in the prompt rules (landline for calls, WhatsApp number for WhatsApp), and
+  the prompt says its rules prevail over the manual on conflicts, so the manual text itself is left as is.
+- **Opening hours are computed in code** (`hours.py`), not by the model: policy 7.1 requires giving the
+  return time when closed, and "are you open now?" must not depend on the model doing date math. The
+  prompt receives the current weekday, date, time and status.
+- **Holidays.** The manual says the store is closed on holidays. Only **national holidays with a fixed
+  date** are modeled (1 Jan, 21 Apr, 1 May, 7 Sep, 12 Oct, 2 Nov, 15 Nov, 20 Nov, 25 Dec). Movable ones
+  (Carnival, Good Friday, Corpus Christi) and state or city holidays are not, because they need a calendar.
+  The prompt tells the agent to state the rule and say the team confirms the date for any other holiday.
+- **Prompt layout.** Persona, current moment, rules, service flow, examples, then the manual last between
+  delimiters. The examples contain no real prices, so the model cannot parrot them. The static parts come
+  first and the manual last, which suits provider-side caching when it is available.
+- **Size.** The whole prompt is 15,163 characters, which Gemini counts as 4,069 tokens: about 0.4% of the
+  1,048,576-token context window. Putting the full manual in the prompt (CAG) fits with a wide margin.
+
 ## Policy manual notes (used from the policy slice on)
 
 - Text extraction with `pypdf` returns one word per line, so the text must be re-joined before it goes

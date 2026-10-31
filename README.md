@@ -98,7 +98,7 @@ but need a tool to do exact math or to hand the case to a person.
 |---|---|---|
 | Agent pattern | ReAct with function calling | The task is "know when to query data versus policy". A tool-calling loop lets the model make that call and keeps outputs structured. |
 | Orchestration | LangChain 1.x `create_agent` | The current replacement for LangGraph's `create_react_agent`. It runs on the LangGraph runtime, so it keeps the tool loop, a checkpointer for memory and tracing. Its middleware (`after_model`, `before_model`) will be evaluated in slices 6/7 for the grounding check right after the model's reply and for trimming the history. A custom `StateGraph` is a "with more time" item. |
-| Policies | Cache-augmented generation: the full manual goes into the system prompt | The manual is 8 pages, which fits easily in context. A vector store would add retrieval errors, latency and moving parts for no gain. Move to RAG if the manual grows. |
+| Policies | Cache-augmented generation: the full manual goes into the system prompt | The manual is 8 pages: with the persona and rules the whole prompt is about 4,000 tokens (measured with Gemini), under 0.5% of the context window. A vector store would add retrieval errors, latency and moving parts for no gain. Move to RAG if the manual grows. |
 | Operational data | CSVs cleaned with pandas, loaded into SQLite, read through typed, parameterized tools | No free-form text-to-SQL: no injection risk, least privilege and deterministic results. |
 | Business math | Python (`pricing.py`), never the LLM | Discounts, PIX and installments must be exact and testable. |
 | Tool schemas | Pydantic arguments with enums (categories, string type) | Fewer malformed calls, and the model cannot invent a category. |
@@ -117,7 +117,9 @@ but need a tool to do exact math or to hand the case to a person.
 
 - **Persona:** the store's virtual assistant. Informal but professional, warm, knows music, short
   WhatsApp-style replies.
-- **Current date and time** (America/Campo_Grande) is injected so it can answer "are you open now?".
+- **Current date and time** (America/Campo_Grande) is injected, together with the store's opening status
+  computed in code (`hours.py`), so "are you open now?" and the reopening time never depend on the model
+  doing date math.
 - **Hard rules:** never state price, stock, promotion or delivery date without calling a tool; show a
   promotional price together with the original price and the discount; do not reveal order data before
   identity verification; if unsure about a policy, say so and offer a human instead of improvising.
@@ -259,3 +261,6 @@ results table will be pasted here.
 10. Streamlit UI (optional)
 11. Example conversations
 12. Final README
+- Opening hours know only the national holidays with a fixed date. Movable holidays (Carnival, Good Friday,
+  Corpus Christi) and state or city holidays are not in the calendar, so for those the agent states the rule
+  and says the team confirms.

@@ -113,7 +113,8 @@ emporio-musica-agent/
 ├── src/emporio_agent/
 │   ├── config.py              # env vars, paths, timezone
 │   ├── data_loader.py         # load + clean CSVs → SQLite
-│   ├── policies.py            # extract PDF text once (pypdf), cache it
+│   ├── policies.py            # extract + tidy the policy PDF text (pypdf, layout mode)
+│   ├── hours.py               # opening hours, fixed national holidays, store time zone
 │   ├── pricing.py             # promo / PIX / installment math (pure functions)
 │   ├── db.py                  # read-only parameterized SQLite helper
 │   ├── catalog.py             # product search, fuzzy lookup, alternatives, payment options
