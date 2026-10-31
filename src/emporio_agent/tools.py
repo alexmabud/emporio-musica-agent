@@ -11,15 +11,13 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from emporio_agent.catalog import Catalog
+from emporio_agent.hours import STORE_TIMEZONE
 from emporio_agent.orders import Orders
-
-STORE_TIMEZONE = ZoneInfo("America/Campo_Grande")
 
 # Policy 7.3: complaints are answered within 24 business hours.
 ESCALATION_RETURN_WINDOW = "24 horas úteis"
