@@ -62,6 +62,13 @@ def test_the_current_moment_and_store_status_are_injected(policy: str) -> None:
         "o fechamento do carrinho é feito pela equipe",
         "não calcule atrasos",
         "saudação",
+        "não prometa nada que o manual não prevê",
+        "nunca escreva 'aproximado'",
+        "mostre poucas opções de parcelamento",
+        "use um asterisco",
+        "chame escalate_to_human já",
+        "nunca diga que registrou ou encaminhou algo sem ter chamado escalate_to_human",
+        "só mencione se a loja está aberta ou fechada quando",
     ],
 )
 def test_the_rules_the_specification_requires_are_in_the_prompt(prompt: str, phrase: str) -> None:
