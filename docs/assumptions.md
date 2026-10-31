@@ -81,10 +81,25 @@ with uniform keys per category.
 
 - **Extraction.** `pypdf`'s default mode returns one word per line (1,755 lines of 1.0 word), which
   destroys headings, lists and tables. The `layout` mode (201 lines, 8.7 words per line) keeps them. The
-  text is then tidied in code: page footers ("Página N") and the header repeated on every page are
-  dropped, table columns are separated by ` | `, bullets become `- ` lines, numbered steps and subsection
-  titles stay on their own line, lines wrapped inside a table cell or a bullet are joined back, and runs
-  of blank lines collapse. The meaning of the manual is never rewritten.
+  text is then cleaned in code, **without losing any rule, value or deadline**:
+  - page footers ("Página N"), the header repeated on every page and the cover line "Documento interno —
+    Uso restrito" are dropped;
+  - tables become simple lines: two-column tables read `Segunda a Sexta-feira: 09:00 às 18:00`, wider
+    ones keep their column names (`PAC (Correios): Prazo Estimado 5 a 12 dias úteis; Rastreamento Sim;
+    Seguro Incluído`); the generic header rows ("Dia | Horário", "Campo | Informação") are dropped;
+  - bullets become `- ` lines, numbered steps and subsection titles stay on their own line;
+  - lines that the layout wrapped in the middle of a sentence are joined, and blank lines are kept only
+    before each of the ten section titles (70 blank lines became 10; 242 lines became 136).
+- **How losslessness is checked.** A test compares the cleaned text with the PDF as `pypdf` extracts it
+  by default: every figure (hours, days, prices, percentages) must still appear as many times as in the
+  PDF, and every distinct word must still appear, except an explicit list of allowed drops (the footer word
+  "Página", the "uso restrito" cover line and the two generic first-column table headers "Informação" and
+  "Modalidade"). Another test pins the critical facts one by one: hours, phones, the 7/30/90-day
+  deadlines, installment rules, shipping (R$ 500 / R$ 35), PIX 5% and the non-exchangeable items.
+- **What the cleanup is worth, measured.** The manual went from 3,012 to **2,942 tokens (-70, -2.3%)** on
+  Gemini's tokenizer, and the whole system prompt from 4,280 to 4,210. On Groq's tokenizer the system
+  prompt went from 4,046 to 3,978 tokens (-1.7%). It is a cleaner text, not a much shorter one:
+  the manual is made of real sentences, and the blank lines and line breaks that were removed were cheap.
 - **Typo fixed in the text:** the e-mail written with an accent (`contato@empóriodamusica.com.br`).
 - **Phone conflict** is settled in the prompt rules (landline for calls, WhatsApp number for WhatsApp), and
   the prompt says its rules prevail over the manual on conflicts, so the manual text itself is left as is.
@@ -98,8 +113,15 @@ with uniform keys per category.
 - **Prompt layout.** Persona, current moment, rules, service flow, examples, then the manual last between
   delimiters. The examples contain no real prices, so the model cannot parrot them. The static parts come
   first and the manual last, which suits provider-side caching when it is available.
-- **Size.** The whole prompt is 15,163 characters, which Gemini counts as 4,069 tokens: about 0.4% of the
-  1,048,576-token context window. Putting the full manual in the prompt (CAG) fits with a wide margin.
+- **Size.** Per section, on Gemini's tokenizer: persona 46, current moment 52, rules 893, service flow 62,
+  examples 188 and the manual **2,942**, for a **system prompt of 4,210 tokens** (about 0.4% of the
+  1,048,576-token context window), plus **950 tokens** for the six tool schemas that travel in every call:
+  **5,160 tokens per model call**. The manual is 70% of the prompt, so putting it whole in the prompt (CAG)
+  fits with a wide margin but is what decides the speed on the Groq free tier (8,000 tokens per minute).
+  The examples are only 188 tokens and were left as they are.
+- **Why not shrink further.** Two model calls per minute on Groq would need under about 3,400 tokens per
+  call, which is impossible without removing manual content or giving up the whole-manual-in-the-prompt
+  decision. That trade-off is left open on purpose; it is discussed only if the slowness blocks the evals.
 
 ## Agent decisions (slice 6)
 

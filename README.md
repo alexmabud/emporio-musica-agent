@@ -214,7 +214,7 @@ What the agent does about it:
   of a stack trace.
 
 **Groq's free tier is limited differently: 1,000 requests per day but only 8,000 tokens per minute per model.**
-Each call to the agent sends about 4,800 tokens (the rules, the whole manual and the tool schemas), so the
+Each call to the agent sends about 4,700 tokens (the rules, the whole manual and the tool schemas), so the
 budget allows about one and a half calls per minute. A question that needs a tool makes two calls and waits
 for the token window, so it takes **30 to 60 seconds** on Groq. The retry above covers that wait. Each model
 has its own budget, which is why the same reserve-model chain also helps there.
@@ -331,7 +331,7 @@ results table will be pasted here.
 - The free tier allows about 20 requests per day per model (see [Free-tier quota](#free-tier-quota)). The
   agent tries the exhausted main model first on every turn before falling to a reserve; a circuit breaker
   that remembers dead models would save that wasted call.
-- On the Groq free tier a question with a tool takes 30 to 60 seconds, because the prompt (about 4,800
+- On the Groq free tier a question with a tool takes 30 to 60 seconds, because the prompt (about 4,700
   tokens) nearly fills the 8,000 tokens-per-minute budget. Shrinking the prompt would speed it up.
 - The `gpt-oss` models write `R$\u202f2.199,00`, with a narrow no-break space after "R$". It looks the same to
   a customer, but a plain string comparison fails, so the grounding check (slice 7) must normalize spaces.
