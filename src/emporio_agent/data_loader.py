@@ -8,9 +8,12 @@ import json
 import sqlite3
 import unicodedata
 from contextlib import closing
+from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+
+from emporio_agent.pricing import min_installment_value
 
 _TABLES = ("categories", "customers", "orders", "order_items", "products", "promotions")
 
@@ -78,14 +81,13 @@ def _payment_label(method: str) -> str | None:
 def _breaks_installment_rule(method: str, total: float) -> bool:
     """Tell whether a credit order has installments below the policy minimum (section 3.1).
 
-    Minimum per installment: R$50 up to 3x (our reading of an ambiguous rule), R$80 for 4-6x
-    and R$100 for 7-12x. Non-credit methods have no installments.
+    The per-installment minimum comes from ``pricing.min_installment_value``. Non-credit methods
+    have no installments.
     """
     if not method.startswith("credit_"):
         return False
     count = int(method.removeprefix("credit_").removesuffix("x"))
-    minimum = 50 if count <= 3 else 80 if count <= 6 else 100
-    return total / count < minimum
+    return Decimal(str(total)) / count < min_installment_value(count)
 
 
 def _clean_specs(raw: str) -> dict[str, object]:
