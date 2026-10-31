@@ -215,6 +215,8 @@ results table will be pasted here.
   for jazz") depend on the model translating them into filters.
 - The grounding check validates `R$` values and tracking codes, not every factual claim.
 - Order identity check is e-mail or phone only, which is enough for a prototype and not for production.
+- Product names are matched fuzzily but strictly: an ambiguous name returns candidates and an unknown name
+  is reported as not found, so a badly misspelled name may need one more question to the customer.
 - Source-data inconsistencies are handled conservatively, not corrected.
 - Payment options are calculated per product (with a quantity). Carts with several different products are
   out of scope: the agent calculates item by item and says the cart is closed by the team.

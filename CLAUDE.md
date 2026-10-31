@@ -115,7 +115,10 @@ emporio-musica-agent/
 │   ├── data_loader.py         # load + clean CSVs → SQLite
 │   ├── policies.py            # extract PDF text once (pypdf), cache it
 │   ├── pricing.py             # promo / PIX / installment math (pure functions)
-│   ├── tools.py               # @tool functions exposed to the LLM (Pydantic args + enums)
+│   ├── db.py                  # read-only parameterized SQLite helper
+│   ├── catalog.py             # product search, fuzzy lookup, alternatives, payment options
+│   ├── orders.py              # order status behind the identity check
+│   ├── tools.py               # LangChain tools exposed to the LLM (Pydantic args + enums)
 │   ├── validation.py          # grounding check: R$ values / tracking codes must come from tool results
 │   ├── prompts.py             # system prompt (persona, rules, policy text, current datetime)
 │   ├── agent.py               # build_agent(): model + tools + checkpointer
@@ -148,7 +151,8 @@ All tools return compact, structured dicts/strings. Docstrings matter: the LLM r
    - **Identity check (LGPD):** checked against the customer **of that order**, never by name. Only returns
      details if the e-mail or phone matches that customer. Normalize phone digits before comparing.
      **If the e-mail given belongs to more than one customer (`email_is_shared`, e.g. customers 11 and 43),
-     the phone is required** to release the data. Never reveal other customers' data. (Test in slice 4.)
+     the phone is required** to release the data. Never reveal other customers' data. A failed check answers
+     the same way whether the order exists or not (no probing). Implemented and tested in slice 4.
    - Returns status (translated to PT-BR), items, total, payment method, tracking code, estimated delivery, notes.
 4. `list_active_promotions()`
    - Only `is_active == 1`. Show original price, % off, final price (policy 6.2 transparency rule).

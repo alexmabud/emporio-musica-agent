@@ -58,6 +58,25 @@ with uniform keys per category.
 - The free Google AI Studio tier may use submitted content to improve Google products. All data here is
   fictional, so nothing real is sent (LGPD care); a real deployment would use a paid tier.
 
+## Tool decisions (slice 4)
+
+- **Only sellable products are ever searched or offered**; a product with positive stock that is
+  discontinued or coming soon is described honestly by `get_product_details` but never listed.
+- **Price filters compare the final price** (promotion included), so a R$ 549 ukulele at 20% off fits a
+  R$ 500 budget.
+- **Name lookup is fuzzy but strict.** Accents, case, punctuation and word order are ignored ("ohana ck 20",
+  "CK20" and "Ohana CK-20" are the same product). A name that fits several products ("Yamaha") returns
+  candidates so the agent asks which one; a name that fits none is reported as not found. Nothing is guessed.
+- **Alternatives for an unavailable product** come from the same category, ranked by same string material,
+  then same electronics, then nearest final price (three at most).
+- **Order identity.** The e-mail or phone is checked against the customer **of that order**. Phones lose
+  formatting and a leading country code; e-mails are lowercased. A shared e-mail alone never releases an
+  order: the phone is required. Every other failure returns one generic answer, identical for an unknown
+  order and for wrong details.
+- **Escalations** are appended to `escalations.jsonl` (one JSON line each, store time zone) and the
+  customer is told the 24 business-hour response window of policy 7.3. The summary the agent writes is
+  stored as given, so it should avoid unnecessary personal data.
+
 ## Policy manual notes (used from the policy slice on)
 
 - Text extraction with `pypdf` returns one word per line, so the text must be re-joined before it goes
