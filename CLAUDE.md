@@ -152,9 +152,16 @@ All tools return compact, structured dicts/strings. Docstrings matter: the LLM r
    - Returns status (translated to PT-BR), items, total, payment method, tracking code, estimated delivery, notes.
 4. `list_active_promotions()`
    - Only `is_active == 1`. Show original price, % off, final price (policy 6.2 transparency rule).
-5. `calculate_payment_options(amount)`
-   - Applies policy section 3: PIX 5% off (**not** on promotional prices — policy 6.2), installment limits
-     (≤3x; 4–6x min R$80/installment; 7–12x min R$100), combined payment only above R$2,000.
+5. `calculate_payment_options(product_name, quantity=1)`
+   - Per product, because PIX eligibility depends on **that product's** promotion (**no PIX discount on
+     promotional prices** — policy 6.2) and the combined-payment rule (**only above R$2,000**) uses the total
+     **with the quantity**. Installment limits: 1x has no minimum; ≤3x min R$50; 4–6x min R$80; 7–12x min R$100.
+   - Uses `pricing.payment_options`. Totals are exactly unit price × quantity. Installment cents that do not
+     divide evenly go to the **first** installment (R$1.000 in 3x = 1x R$333,34 + 2x R$333,33), and the tool
+     returns each plan as text from `InstallmentOption.describe()`, so the grounding check matches exactly the
+     values the customer sees.
+   - **Carts with several different products are out of scope**: the agent calculates item by item and says
+     the cart is closed by the team.
 6. `escalate_to_human(reason, summary)`
    - Human-in-the-loop for complaints and anything the policy says requires a manager. Appends to
      `escalations.jsonl` and tells the customer the 24-business-hour return window (policy 7.3).
@@ -201,6 +208,8 @@ Known issues found in the dataset:
 - Hard rules:
   - **Never state price, stock, promo or delivery dates without calling a tool** (policy 7.1).
   - Promotional price always shown with original price and % off; PIX discount never stacks on promo.
+  - Several different products in one question: calculate item by item and tell the customer that the
+    cart is closed by the team.
   - Order data only after identity verification.
   - Out of scope (non-music topics, accessories, other stores' products, general chit-chat beyond a line): decline kindly
     and redirect to what the store can help with.
@@ -258,7 +267,8 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
 Vector RAG with re-ranking if the policy base grows · custom LangGraph `StateGraph` with explicit
 nodes (classify → retrieve → answer → validate) · LLM-as-judge evals · FastAPI + Docker deploy and
 WhatsApp integration · PostgreSQL instead of SQLite · persistent cross-session memory per customer ·
-PII redaction in logs · real escalation integration (ticketing) · provider prompt caching of the static
+cart with several products and PIX eligibility per item · PII redaction in logs · real escalation
+integration (ticketing) · provider prompt caching of the static
 prefix (persona + full policy) — not controllable on the free tier, so out of scope for now.
 
 ## 11. Ship checklist (before delivery)

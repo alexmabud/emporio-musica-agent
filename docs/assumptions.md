@@ -40,6 +40,18 @@ with uniform keys per category.
   (policy 4.1, online purchases) is estimated from `estimated_delivery`.
 - Installments up to 3x: the manual says "no minimum, except below R$ 50". This is read as a minimum of
   R$ 50 per installment.
+- **1x on a credit card is a payment in full**: no minimum installment applies (1x has no minimum). Up
+  to 3x the minimum is R$ 50 per installment (our reading of the ambiguous rule), 4x-6x R$ 80 and 7x-12x
+  R$ 100.
+- **Installment cents** go to the first installment, as the real store does: R$ 1.000 in 3x is 1x R$ 333,34 +
+  2x R$ 333,33. Installments always add up to the total exactly (tested over thousands of amounts), and the
+  tool states each value so the grounding check matches what the customer sees. Money is `Decimal`,
+  rounded half-up to the cent.
+- **Payment options are per product, with a quantity** (`calculate_payment_options(product_name,
+  quantity=1)`): PIX eligibility depends on that product's promotion, and the combined-payment rule
+  (above R$ 2.000) uses the total with the quantity. Totals are exactly unit price x quantity.
+  **Carts with several different products are out of scope**: the agent calculates item by item and says the
+  cart is closed by the team (listed under known limitations and "with more time").
 - The store sells instruments only. Accessories are politely redirected (policy 1 and 7.1).
 - The store operates in America/Campo_Grande (UTC-4); the current date and time injected in the prompt
   use this time zone.

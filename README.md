@@ -186,6 +186,11 @@ Where the brief or the data was ambiguous, a reasonable interpretation was chose
 - **Scope:** the store sells instruments only. Accessories such as strings, picks, cables, cases, pedals and
   amps are politely redirected.
 - **PIX discount** does not stack on promotional prices, following the policy manual.
+- **1x on a credit card** is treated as a payment in full: it has no minimum installment.
+- **Installment cents:** when the total does not divide evenly, the leftover cents go to the first
+  installment (R$ 1.000 in 3x is 1x R$ 333,34 + 2x R$ 333,33), so installments always add up to the total.
+  The agent states every value, so what the customer sees is what was calculated.
+- **Quantity:** the combined-payment rule (above R$ 2.000) uses the total with the quantity.
 
 ## Example conversations
 
@@ -211,6 +216,8 @@ results table will be pasted here.
 - The grounding check validates `R$` values and tracking codes, not every factual claim.
 - Order identity check is e-mail or phone only, which is enough for a prototype and not for production.
 - Source-data inconsistencies are handled conservatively, not corrected.
+- Payment options are calculated per product (with a quantity). Carts with several different products are
+  out of scope: the agent calculates item by item and says the cart is closed by the team.
 
 ## With more time
 
@@ -219,6 +226,7 @@ results table will be pasted here.
 - LLM-as-judge evaluation on top of the trajectory and key-fact checks.
 - FastAPI, Docker and a WhatsApp integration.
 - PostgreSQL instead of SQLite, and persistent per-customer memory across sessions.
+- A cart with several products, with PIX eligibility decided per item.
 - PII redaction in logs and a real ticketing integration for escalations.
 - Provider prompt caching of the static prefix (persona plus full policy). It is not controllable on the
   free tier, so it is out of scope for now.
