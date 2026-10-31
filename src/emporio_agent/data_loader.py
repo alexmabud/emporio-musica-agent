@@ -14,8 +14,9 @@ import pandas as pd
 
 _TABLES = ("categories", "customers", "orders", "order_items", "products", "promotions")
 
-# Products whose description names another brand/model than the name and specs (audited by hand).
-_UNRELIABLE_DESCRIPTION_IDS = frozenset(range(135, 145))
+# Products whose description names another brand/model than the name, or contradicts the specs
+# (audited one by one, see docs/assumptions.md). 138, 141 and 143 in the same range are coherent.
+_UNRELIABLE_DESCRIPTION_IDS = frozenset({135, 136, 137, 139, 140, 142, 144})
 
 _STATUS_PT = {
     "delivered": "Entregue",

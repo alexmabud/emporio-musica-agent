@@ -36,12 +36,16 @@ def test_sellable_requires_active_status_and_stock(tables: dict[str, pd.DataFram
 
 
 def test_contradictory_descriptions_are_withheld(tables: dict[str, pd.DataFrame]) -> None:
-    """Products 135-144 describe another model than their name/specs, so no description is kept."""
-    for product_id in range(135, 145):
+    """Seven products describe another brand/model than their name or specs: no description kept."""
+    contradictory = (135, 136, 137, 139, 140, 142, 144)
+    for product_id in contradictory:
         product = _product(tables, product_id)
         assert not product["description_reliable"]
         assert pd.isna(product["description"])
-    for product_id in (131, 132, 133, 134, 145, 95):
+    unreliable = tables["products"].query("not description_reliable")["product_id"].tolist()
+    assert unreliable == list(contradictory)
+    # 138 (StingRay), 141 (Stage Custom) and 143 (Nord Stage) match their brand and specs.
+    for product_id in (131, 132, 133, 134, 138, 141, 143, 145, 95):
         product = _product(tables, product_id)
         assert product["description_reliable"]
         assert product["description"]
