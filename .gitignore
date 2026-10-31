@@ -1,0 +1,45 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Generated data (rebuilt from data/*.csv by data_loader)
+var/
+*.db
+*.sqlite
+*.sqlite3
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Challenge statement (kept local, not published)
+docs/desafio_tecnico.md
+desafio_tecnico*.pdf
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*:Zone.Identifier
+
+# Claude Code local state (skills in .claude/skills stay tracked)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/SKILLS_INTEGRATION_REPORT_CLAUDE.md
+.claude/worktrees/

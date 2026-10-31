@@ -1,0 +1,11 @@
+# Runtime dependencies.
+# The LLM provider package is NOT listed: install the one matching LLM_MODEL
+# (e.g. `pip install langchain-openai` for `openai:<model>`). See .env.example.
+pandas>=2.2
+pydantic>=2.7
+pypdf>=4.2
+rapidfuzz>=3.9
+python-dotenv>=1.0
+langchain>=0.3
+langgraph>=0.2
+streamlit>=1.35
