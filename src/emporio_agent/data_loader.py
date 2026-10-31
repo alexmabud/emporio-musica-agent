@@ -65,7 +65,7 @@ def _read_csv(data_dir: Path, name: str) -> pd.DataFrame:
     return pd.read_csv(data_dir / f"{name}.csv", dtype=str, keep_default_na=False)
 
 
-def _fold(text: str) -> str:
+def fold_text(text: str) -> str:
     """Lowercase ``text`` and strip accents so that 'Aço' matches 'aco'."""
     decomposed = unicodedata.normalize("NFKD", text)
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).lower()
@@ -131,7 +131,7 @@ def _clean_products(products: pd.DataFrame, promotions: pd.DataFrame) -> pd.Data
 
     products["name_raw"] = products["name"]
     products["name"] = products["product_id"].map(_NAME_FIXES).fillna(products["name_raw"])
-    products["name_search"] = products["name"].map(_fold)
+    products["name_search"] = products["name"].map(fold_text)
 
     products["is_sellable"] = (products["status"] == "active") & (products["stock_quantity"] > 0)
     products["description_reliable"] = ~products["product_id"].isin(_UNRELIABLE_DESCRIPTION_IDS)
