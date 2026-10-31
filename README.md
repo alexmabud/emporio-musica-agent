@@ -60,7 +60,7 @@ ruff check . && ruff format --check .
 
 | Variable | Purpose |
 |---|---|
-| `LLM_MODEL` | Model in LangChain `init_chat_model` format, e.g. `google_genai:<flash-model-id>`. Pick a current Flash model in AI Studio. |
+| `LLM_MODEL` | Model in LangChain `init_chat_model` format, e.g. `google_genai:gemini-3.5-flash` (the tested default, see [Why this model](#why-this-model)). |
 | `GOOGLE_API_KEY` | Google AI Studio key (free tier). |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Optional tracing. Leave `LANGSMITH_TRACING=false` to disable. |
 
@@ -102,7 +102,7 @@ but need a tool to do exact math or to hand the case to a person.
 | Operational data | CSVs cleaned with pandas, loaded into SQLite, read through typed, parameterized tools | No free-form text-to-SQL: no injection risk, least privilege and deterministic results. |
 | Business math | Python (`pricing.py`), never the LLM | Discounts, PIX and installments must be exact and testable. |
 | Tool schemas | Pydantic arguments with enums (categories, string type) | Fewer malformed calls, and the model cannot invent a category. |
-| Model | Gemini through Google AI Studio (free tier), a Flash-line model, `LLM_MODEL=google_genai:<flash-model-id>`, temperature around 0.2. Groq is the documented free alternative. | Free, fast, with solid tool calling, which is enough for this narrow domain. Provider and model are set only by `.env`, so switching to Groq (or any `init_chat_model` provider) needs no code change. |
+| Model | **`gemini-3.5-flash`** through Google AI Studio (free tier), `LLM_MODEL=google_genai:gemini-3.5-flash`, temperature around 0.2. Groq is the documented free alternative. See [Why this model](#why-this-model). | Free, fast, with solid tool calling, which is enough for this narrow domain. Provider and model are set only by `.env`, so switching to Groq (or any `init_chat_model` provider) needs no code change. |
 | Rate limits (free tier) | Retry with exponential backoff on HTTP 429, and a configurable pause between scenarios in `make eval` | Free tiers throttle by minute and by day. **Planned for slices 6 and 8; not implemented yet.** |
 | Memory | LangGraph checkpointer, one `thread_id` per session | Multi-turn context ("and how much is that one?") and order verification across turns. In-memory by default. |
 | Interface | CLI first, Streamlit if time allows | The focus is the agent. The UI is a thin layer over the same `agent.py`. |
@@ -112,6 +112,56 @@ but need a tool to do exact math or to hand the case to a person.
 > products. Everything in this project is fictional (store, customers, orders), so nothing real is sent. A
 > real deployment would use a paid tier or a provider with a no-training agreement, and would also redact
 > personal data in logs.
+
+### Why this model
+
+**What the model has to do.** This agent needs four things from an LLM: reliable **tool calling** (it
+must choose between six tools, or none), good **Brazilian Portuguese** with a friendly tone, a context
+window big enough to hold the whole policy manual (about 14,000 characters, a few thousand tokens), and a
+**free** way to run it, so that a reviewer can reproduce the project without a credit card.
+
+**The free options considered.**
+
+| Option | Free | Tested here? | Verdict |
+|---|---|---|---|
+| **Gemini (Google AI Studio)** | Yes, free tier with rate limits | **Yes** (models, tool calling and routing below) | **Chosen.** Fast, supports tool calling, large context, one API key. |
+| Groq (hosted open-weight models) | Yes, free tier with rate limits | **No** | Documented fallback, switchable through `.env` only. Not measured, so no claim about its quality. |
+| Local model (for example through Ollama) | Yes, runs on the reviewer's machine | **No** | Best for privacy (nothing leaves the machine), but it needs hardware and a model download, and small local models are generally less reliable at tool calling. Not chosen for a prototype that must run anywhere. |
+| Paid APIs | No | No | Ruled out by the "free and reproducible" requirement. |
+
+Gemini was chosen because it is the option I could measure end to end with the project's real tools and
+because it met all four needs. Free-tier cost is a privacy trade-off, described in the note above. The
+code does not depend on the provider: `LLM_MODEL` alone picks it.
+
+**Why `gemini-3.5-flash` inside the Gemini family.** The model was chosen by testing, not by name, on 2026-10-31 with the project's
+own API key. The key listed 26 "flash" models; ignoring preview, speech, image and live variants left these
+candidates:
+
+| Model | Result in the tests |
+|---|---|
+| `gemini-3.8-flash`, `gemini-3.7-flash` | The newest, but **unavailable when tested**: HTTP 503 ("high demand") on both attempts, and 504 on the 3.8. |
+| `gemini-3.6-flash` | Worked; the first call took 48 s. |
+| **`gemini-3.5-flash`** | **Worked: correct tool call and a final answer that quotes the tool's exact value (`R$ 2.199,00`).** |
+| `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite` | Worked and are faster (about 1 s), but see below. |
+| `gemini-2.5-flash` | Not available to new users (404). |
+
+Flash against Flash-Lite was decided with a small routing check on the **project's real tools**: eight
+questions, looking only at the model's first decision (which tool to call, or none).
+
+| Model | Right | Average latency | Misses |
+|---|---|---|---|
+| `gemini-3.5-flash` | 7/8 | 2.0 s | Asked for the PIX price of a product and called `get_product_details` instead of `calculate_payment_options`. Harmless: that tool also returns the PIX price. |
+| `gemini-3.1-flash-lite` | 7/8 | 2.3 s | Did **not** escalate a complaint about a broken guitar; chose the wrong category (brass) for a saxophone. |
+| `gemini-3.5-flash-lite` | 7/8 | 1.1 s | Same two misses. It also ignores the `temperature` setting. |
+
+The scores tie, but the Lite misses are the costly kind (a complaint left without a human, a wrong
+category), so Flash is the default and Flash-Lite is the plan B if the free-tier daily limit runs out.
+
+**What this does not prove.** The routing check ran once, with a short prompt and no escalation
+instruction, so the complaint miss may disappear with the real prompt. The newest models may become
+available later and are worth re-testing. Free-tier quotas are not exposed by the API, so they were not
+compared; check them in the AI Studio dashboard. A reproducible version of this routing check will live in
+`make eval` (slice 8).
 
 ### Prompt strategy
 
@@ -212,6 +262,8 @@ results table will be pasted here.
 **TODO — finalize after the build.** Known so far:
 
 - Memory is in-process by default, so a conversation does not survive a restart.
+- The free Gemini tier answers with HTTP 503 ("high demand") now and then, on any model. The agent needs a
+  retry with backoff (slice 6); even so, a busy hour can make a reply slow.
 - The full policy sits in every prompt. This is cheap at 8 pages but would not scale to a large manual.
 - Product search is filter-based plus fuzzy name matching, not semantic. Vague requests ("something warm
   for jazz") depend on the model translating them into filters.
@@ -219,6 +271,9 @@ results table will be pasted here.
 - Order identity check is e-mail or phone only, which is enough for a prototype and not for production.
 - Product names are matched fuzzily but strictly: an ambiguous name returns candidates and an unknown name
   is reported as not found, so a badly misspelled name may need one more question to the customer.
+- Opening hours know only the national holidays with a fixed date. Movable holidays (Carnival, Good Friday,
+  Corpus Christi) and state or city holidays are not in the calendar, so for those the agent states the rule
+  and says the team confirms.
 - Source-data inconsistencies are handled conservatively, not corrected.
 - Payment options are calculated per product (with a quantity). Carts with several different products are
   out of scope: the agent calculates item by item and says the cart is closed by the team.
@@ -261,6 +316,3 @@ results table will be pasted here.
 10. Streamlit UI (optional)
 11. Example conversations
 12. Final README
-- Opening hours know only the national holidays with a fixed date. Movable holidays (Carnival, Good Friday,
-  Corpus Christi) and state or city holidays are not in the calendar, so for those the agent states the rule
-  and says the team confirms.
