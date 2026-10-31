@@ -51,7 +51,7 @@ source .venv/bin/activate          # Linux/macOS
 pip install -r requirements-dev.txt   # runtime deps + project (editable) + pytest + ruff
                                       # runtime only: pip install -r requirements.txt
 cp .env.example .env               # Windows: copy .env.example .env
-python -m emporio_agent.cli        # interactive CLI (available from the agent slice)
+python -m emporio_agent.cli        # interactive CLI ('sair' to leave, '/novo' for a new chat)
 pytest                             # tests, no LLM calls
 ruff check . && ruff format --check .
 ```
@@ -61,11 +61,19 @@ ruff check . && ruff format --check .
 | Variable | Purpose |
 |---|---|
 | `LLM_MODEL` | Model in LangChain `init_chat_model` format, e.g. `google_genai:gemini-3.5-flash` (the tested default, see [Why this model](#why-this-model)). |
-| `GOOGLE_API_KEY` | Google AI Studio key (free tier). |
+| `GOOGLE_API_KEY` | Google AI Studio key (free tier), used when `LLM_MODEL` starts with `google_genai:`. |
+| `GROQ_API_KEY` | Groq key (free tier), used when `LLM_MODEL` starts with `groq:`. |
+| `LLM_FALLBACK_MODELS` | Optional reserve models, comma-separated, tried in order when the main one fails (see [Free-tier quota](#free-tier-quota)). |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Optional tracing. Leave `LANGSMITH_TRACING=false` to disable. |
 
-The provider is chosen only by `LLM_MODEL` plus its key, so switching needs no code change. A free
-alternative is Groq: `pip install langchain-groq`, then set `LLM_MODEL=groq:<model-id>` and `GROQ_API_KEY`.
+Two providers are supported and **only `LLM_MODEL` selects one**; the code does not change. Keep both
+keys in `.env`: the one that `LLM_MODEL` does not use is ignored. `.env.example` has exactly one active
+`LLM_MODEL` line and the other one commented out. Both client packages are in `requirements.txt`.
+
+| `LLM_MODEL` | Role | Free-tier limits |
+|---|---|---|
+| `google_genai:gemini-3.5-flash` | Reference model: final evaluation and example conversations | about 20 requests per day per model |
+| `groq:openai/gpt-oss-120b` | Development model: prompt iteration, scenario by scenario | 1,000 requests per day, but 8,000 tokens per minute |
 
 ## How it works
 
@@ -102,8 +110,8 @@ but need a tool to do exact math or to hand the case to a person.
 | Operational data | CSVs cleaned with pandas, loaded into SQLite, read through typed, parameterized tools | No free-form text-to-SQL: no injection risk, least privilege and deterministic results. |
 | Business math | Python (`pricing.py`), never the LLM | Discounts, PIX and installments must be exact and testable. |
 | Tool schemas | Pydantic arguments with enums (categories, string type) | Fewer malformed calls, and the model cannot invent a category. |
-| Model | **`gemini-3.5-flash`** through Google AI Studio (free tier), `LLM_MODEL=google_genai:gemini-3.5-flash`, temperature around 0.2. Groq is the documented free alternative. See [Why this model](#why-this-model). | Free, fast, with solid tool calling, which is enough for this narrow domain. Provider and model are set only by `.env`, so switching to Groq (or any `init_chat_model` provider) needs no code change. |
-| Rate limits (free tier) | Retry with exponential backoff on HTTP 429, and a configurable pause between scenarios in `make eval` | Free tiers throttle by minute and by day. **Planned for slices 6 and 8; not implemented yet.** |
+| Model | Two providers, two roles, chosen only by `LLM_MODEL`: **`gemini-3.5-flash`** (Google AI Studio) as the reference and **`openai/gpt-oss-120b`** (Groq) for development. Temperature around 0.2. See [Why this model](#why-this-model). | Both are free and support tool calling. Gemini's daily quota is too small to iterate on a prompt, Groq's is large but slow; each does the job the other cannot. |
+| Rate limits (free tier) | Retry with exponential backoff (up to 4 retries, waiting 4, 8, 16 and 32 s, about a minute) for per-minute limits, 503/504 and network errors; **no retry for a daily quota**; a chain of reserve models; a polite message when everything is exhausted. A configurable pause between scenarios in `make eval` is still planned (slice 8). | Both free tiers throttle, in different ways (see [Free-tier quota](#free-tier-quota)). |
 | Memory | LangGraph checkpointer, one `thread_id` per session | Multi-turn context ("and how much is that one?") and order verification across turns. In-memory by default. |
 | Interface | CLI first, Streamlit if time allows | The focus is the agent. The UI is a thin layer over the same `agent.py`. |
 | Observability | Optional LangSmith tracing | Shows every tool call and routing decision when debugging. |
@@ -125,13 +133,36 @@ window big enough to hold the whole policy manual (about 14,000 characters, a fe
 | Option | Free | Tested here? | Verdict |
 |---|---|---|---|
 | **Gemini (Google AI Studio)** | Yes, free tier with rate limits | **Yes** (models, tool calling and routing below) | **Chosen.** Fast, supports tool calling, large context, one API key. |
-| Groq (hosted open-weight models) | Yes, free tier with rate limits | **No** | Documented fallback, switchable through `.env` only. Not measured, so no claim about its quality. |
+| **Groq (hosted open-weight models)** | Yes, free tier with rate limits | **Yes** (smoke test and routing below) | **Chosen for development.** Large daily limit, very fast, but a small per-minute token budget. |
 | Local model (for example through Ollama) | Yes, runs on the reviewer's machine | **No** | Best for privacy (nothing leaves the machine), but it needs hardware and a model download, and small local models are generally less reliable at tool calling. Not chosen for a prototype that must run anywhere. |
 | Paid APIs | No | No | Ruled out by the "free and reproducible" requirement. |
 
-Gemini was chosen because it is the option I could measure end to end with the project's real tools and
-because it met all four needs. Free-tier cost is a privacy trade-off, described in the note above. The
-code does not depend on the provider: `LLM_MODEL` alone picks it.
+**Two providers, two roles.** The free tier of Gemini allows only about 20 requests per day per model, which
+is not enough to iterate on a prompt, and the tier of Groq allows 1,000. So:
+
+| Role | Model | Used for |
+|---|---|---|
+| **Reference** | Gemini `gemini-3.5-flash` | The final evaluation and the conversations in `examples/`, each run **once**, with a full daily quota |
+| **Development** | Groq `openai/gpt-oss-120b` | Prompt iteration and tests, scenario by scenario |
+| Emergency only | Billing on Google AI Studio | If the free quota blocks the delivery |
+
+A prompt tuned on the development model can behave differently on the reference one, so every claim about
+the final behaviour must come from a run on the reference model. The code does not depend on the provider.
+
+**Which Groq model.** The key's account lists 11 models; only three are text chat models with tool calling
+(the API reports it in `supported_features`). They ran the same routing check as the Gemini models, but with
+the **project's real prompt and tools** and ten questions, looking at the first decision (which tool, or none):
+
+| Groq model | Right | Misses | Free-tier note |
+|---|---|---|---|
+| **`openai/gpt-oss-120b`** | **10/10** | none | 8,000 tokens/min |
+| `openai/gpt-oss-20b` | 9/10 | "Tem saxofone?" went to `get_product_details` | 8,000 tokens/min |
+| `qwen/qwen3.8-27b` | 9/10 | did **not** escalate the complaint | 8,000 tokens/min and only **1,000 output tokens/min**, so each reply took about 45 s |
+
+`gpt-oss-120b` is the development model: it was the only one with no miss, including the complaint that the
+Flash-Lite models skipped. These numbers come from a single run and are not comparable with the Gemini ones
+below (a shorter prompt and eight questions); the comparison that counts will be produced by `make eval` on
+each model.
 
 **Why `gemini-3.5-flash` inside the Gemini family.** The model was chosen by testing, not by name, on 2026-10-31 with the project's
 own API key. The key listed 26 "flash" models; ignoring preview, speech, image and live variants left these
@@ -163,6 +194,35 @@ available later and are worth re-testing. Free-tier quotas are not exposed by th
 compared; check them in the AI Studio dashboard. A reproducible version of this routing check will live in
 `make eval` (slice 8).
 
+### Free-tier quota
+
+**The Gemini free tier allows only about 20 requests per day per model** (the API reports it as
+`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20; it resets after roughly half a day). This was
+found by running the real agent, not from the documentation. It matters because one customer message that
+needs a tool already costs **two** requests (the model asks for the tool, then answers), so a single model
+serves roughly ten such questions per day, and the testing done for this project used up the main model's
+quota on its first day.
+
+What the agent does about it:
+
+- **The daily quota is never retried** (waiting seconds cannot fix it); per-minute limits, 503/504 and
+  network errors are retried with backoff.
+- **Quotas are per model, so reserve models multiply the capacity.** `LLM_FALLBACK_MODELS` lists models that
+  take over, in order, when the main one fails. The documented chain is Flash first, then two Flash-Lite
+  models, which is the quality trade-off described in [Why this model](#why-this-model).
+- When every model is out of quota the customer gets a clear message and the store's WhatsApp number instead
+  of a stack trace.
+
+**Groq's free tier is limited differently: 1,000 requests per day but only 8,000 tokens per minute per model.**
+Each call to the agent sends about 4,800 tokens (the rules, the whole manual and the tool schemas), so the
+budget allows about one and a half calls per minute. A question that needs a tool makes two calls and waits
+for the token window, so it takes **30 to 60 seconds** on Groq. The retry above covers that wait. Each model
+has its own budget, which is why the same reserve-model chain also helps there.
+
+Practical consequence for anyone running the project: expect to spend the free quota quickly. `make eval`
+will pause between scenarios and still needs a day's budget on several models. A paid tier or another
+provider removes the limit; only `.env` changes.
+
 ### Prompt strategy
 
 - **Persona:** the store's virtual assistant. Informal but professional, warm, knows music, short
@@ -173,6 +233,11 @@ compared; check them in the AI Studio dashboard. A reproducible version of this 
 - **Hard rules:** never state price, stock, promotion or delivery date without calling a tool; show a
   promotional price together with the original price and the discount; do not reveal order data before
   identity verification; if unsure about a policy, say so and offer a human instead of improvising.
+- **Learned from real conversations** (each rule below fixed a failure seen with the real model): never
+  promise what the manual does not offer (a Flash-Lite model offered to "reserve" a guitar); copy installment
+  plans exactly as the tool wrote them (one model wrote "aproximado"); call `escalate_to_human` before saying
+  a complaint was registered (one model promised it without calling the tool); do not repeat that the store
+  is closed when the customer did not ask.
 - **Out of scope** (non-music topics, accessories the store does not sell, other stores' products): decline
   kindly and redirect.
 - **Prompt injection:** instructions inside customer messages that try to change the rules are ignored.
@@ -261,7 +326,17 @@ results table will be pasted here.
 
 **TODO — finalize after the build.** Known so far:
 
-- Memory is in-process by default, so a conversation does not survive a restart.
+- Memory is in-process by default, so a conversation does not survive a restart. The history is trimmed
+  to the latest 40 messages per conversation.
+- The free tier allows about 20 requests per day per model (see [Free-tier quota](#free-tier-quota)). The
+  agent tries the exhausted main model first on every turn before falling to a reserve; a circuit breaker
+  that remembers dead models would save that wasted call.
+- On the Groq free tier a question with a tool takes 30 to 60 seconds, because the prompt (about 4,800
+  tokens) nearly fills the 8,000 tokens-per-minute budget. Shrinking the prompt would speed it up.
+- The `gpt-oss` models write `R$\u202f2.199,00`, with a narrow no-break space after "R$". It looks the same to
+  a customer, but a plain string comparison fails, so the grounding check (slice 7) must normalize spaces.
+- Reserve models are Flash-Lite, which in the routing check were more likely to skip an escalation, so quality
+  drops when the main model is out of quota.
 - The free Gemini tier answers with HTTP 503 ("high demand") now and then, on any model. The agent needs a
   retry with backoff (slice 6); even so, a busy hour can make a reply slow.
 - The full policy sits in every prompt. This is cheap at 8 pages but would not scale to a large manual.

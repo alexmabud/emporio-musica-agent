@@ -101,6 +101,34 @@ with uniform keys per category.
 - **Size.** The whole prompt is 15,163 characters, which Gemini counts as 4,069 tokens: about 0.4% of the
   1,048,576-token context window. Putting the full manual in the prompt (CAG) fits with a wide margin.
 
+## Agent decisions (slice 6)
+
+- **One prompt per model call.** The system prompt is rebuilt before every model call, so the date and the
+  opening status stay true in a long conversation.
+- **Memory** is per conversation (`thread_id`), kept in process (`InMemorySaver`). The history is trimmed to
+  the latest 40 messages and always starts on a customer message, so a tool result is never separated from
+  the request that produced it. The CLI uses a new thread per run and per `/novo`.
+- **Retry.** Up to 4 retries with exponential backoff (4 s, 8 s, 16 s, 32 s, with jitter; about a minute, the span of a per-minute token window) for per-minute
+  rate limits, HTTP 429/500/502/503/504 and network errors. Anything else (bad request, invalid key) fails at
+  once. The Google client's own retries are switched off so retrying happens in one visible, tested place.
+- **Daily quota** is detected from the error text ("requests per day") and is never retried. The Gemini free
+  tier measured about 20 requests per day per model.
+- **Reserve models** (`LLM_FALLBACK_MODELS`) take over when the main model fails for any reason, including a
+  503; retry wraps the whole chain. They share the same prompt and rules.
+- **When everything fails** the customer sees either an apology with the WhatsApp number (transient errors
+  after the retries) or a daily-limit message with the WhatsApp number (quota). Other errors (for example an
+  invalid key) are reported by type, with a hint to check `.env`, and the chat goes on.
+- **Prompt rules learned from the real model:** no promises the manual does not make; installment plans are
+  copied exactly as the tool wrote them; `escalate_to_human` is called before saying a complaint was
+  registered, with the order number asked afterwards; the opening status is mentioned only when relevant.
+- **Providers.** Gemini is the reference model and Groq the development model; `LLM_MODEL` alone selects
+  one. The Groq errors carry the HTTP status in `status_code` (Google's in `code`), and the retry reads both:
+  without that, a Groq 429 escaped the retry in the first real run.
+- The `gpt-oss` models put a narrow no-break space (U+202F) after "R$". The grounding check must normalize
+  U+202F and U+00A0 before comparing amounts.
+- The store time zone is a business fact (`hours.py`), not an environment setting, so `.env.example` no
+  longer lists `STORE_TIMEZONE`.
+
 ## Policy manual notes (used from the policy slice on)
 
 - Text extraction with `pypdf` returns one word per line, so the text must be re-joined before it goes
