@@ -15,7 +15,7 @@ with uniform keys per category.
 
 | # | Issue found | Decision | Effect on the agent |
 |---|---|---|---|
-| 1 | Descriptions of products **135-144** contradict their name or specs (another brand or model, wrong string count or key count, wrong shell wood). Products 131-134 and 145 are consistent. | `description_reliable = False` and `description = NULL` for 135-144. Name, price, stock, status and specs are trusted. | The agent never quotes a description for these ten products. |
+| 1 | Descriptions of products **135, 136, 137, 139, 140, 142 and 144** contradict their name or specs. Checked one by one: **135** Fender Jazz Bass, body Alder (name Music Man, specs Ash); **136** "Precision" (a Fender model, name Ibanez); **137** 5-string Ibanez (name Yamaha, specs 4 strings); **139** Pearl Export, Poplar (name Yamaha, shells Maple); **140** Tama, Birch (name Pearl, shells Maple); **142** Roland, 88 keys (name Korg, specs 61); **144** Yamaha arranger (name Roland, type Synthesizer). **138** (Music Man StingRay), **141** (Yamaha Stage Custom) and **143** (Nord Stage) match their brand and specs, as do 131-134 and 145. 143 is the borderline case ("piano de palco" versus type Synthesizer): kept, since the brand matches and no number disagrees. | `description_reliable = False` and `description = NULL` for exactly these seven ids. Name, price, stock, status and specs are trusted. | The agent never quotes a description for these seven products. |
 | 2 | Product rows are not sorted by id (145 comes before 131). | Sorted by `product_id`. | None. |
 | 3 | Product 84 is named "Giannini GN-15 Nylon **Cedr** Natural"; its own specs say `top: Cedro`. | Fixed to "Cedro" by an explicit correction map. The original is kept in `name_raw`. The "Cedar" in products 126 and 130 is valid English and stays. | Answers use the corrected name. |
 | 4 | Names contain accents ("Aço", "Elétrico"). | `name_search`: lowercase, accent-free copy of the name. | "violao aco" finds "Violão Aço". |
@@ -29,7 +29,7 @@ with uniform keys per category.
 | 12 | `status` and `payment_method` are English or technical values. | PT-BR labels: `status_pt` (Entregue, Enviado, Confirmado, Pendente, Cancelado) and `payment_pt` (PIX, Cartão de débito, Boleto, Cartão de crédito em Nx). An unknown value stops the load. | Customer-ready wording. |
 | 13 | Orders 3, 4 and 14 contain products that are not sellable today (130 coming soon, 96 out of stock). Order 3 was delivered in 2025-11 although product 130 was created as `coming_soon`. | `orders.has_unsellable_item`. Reported as stored. | The agent does not comment on current availability of items inside an order. |
 | 14 | Orders 9, 16 and 18 use installments below the policy minimum (6x of R$58.32, 6x of R$71.65, 12x of R$38.32). | `orders.installment_rule_violation`. Kept as stored. | The installment rules apply to new purchases, not to past orders. |
-| 15 | Customers 11 and 43 share the e-mail `bruno.martins@jmail.com`. Order 10 belongs to customer 11. | `customers.email_is_shared`. E-mail is normalized (lowercase), phone is reduced to its digits. | **Identity check (applied in the tools slice):** a shared e-mail alone does not unlock an order; the phone is required in that case. Customers are never identified by name. |
+| 15 | Customers 11 and 43 share the e-mail `bruno.martins@jmail.com`. Order 10 belongs to customer 11. | `customers.email_is_shared`. E-mail is normalized (lowercase), phone is reduced to its digits. | **Identity check (enforced and tested in the tools slice):** the e-mail or phone is checked against the customer **of that order**. If the e-mail given belongs to more than one customer, the agent requires the phone before releasing any data. Customers are never identified by name. |
 | 16 | Dangling references or unknown status or payment values. | `DataValidationError` stops the load. | Bad data fails loudly instead of producing wrong answers. |
 
 ## Assumptions about the business data
@@ -41,13 +41,19 @@ with uniform keys per category.
 - Installments up to 3x: the manual says "no minimum, except below R$ 50". This is read as a minimum of
   R$ 50 per installment.
 - The store sells instruments only. Accessories are politely redirected (policy 1 and 7.1).
+- The store operates in America/Campo_Grande (UTC-4); the current date and time injected in the prompt
+  use this time zone.
+- The free Google AI Studio tier may use submitted content to improve Google products. All data here is
+  fictional, so nothing real is sent (LGPD care); a real deployment would use a paid tier.
 
 ## Policy manual notes (used from the policy slice on)
 
 - Text extraction with `pypdf` returns one word per line, so the text must be re-joined before it goes
   into the prompt.
-- Two phone numbers appear: (67) 3341-4444 (header and section 1.2, labelled "Telefone / WhatsApp") and
-  (67) 3321-4500 (section 7, "canal de WhatsApp").
+- **Phone conflict.** Section 1.2 and the header give (67) 3341-4444, and section 1.2 labels it
+  "Telefone / WhatsApp"; section 7 says the WhatsApp channel is (67) 3321-4500. **Rule:** (67) 3341-4444 is
+  the store's landline (calls) and (67) 3321-4500 is the WhatsApp number, because section 7, the section
+  about remote service, is the more specific source for that channel.
 - The e-mail is written once with an accent (`contato@empóriodamusica.com.br`); the header version
   `contato@emporiodamusica.com.br` is used.
 - The manual mentions "more than 300 instruments"; the dataset has 65 products.

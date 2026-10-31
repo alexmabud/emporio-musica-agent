@@ -87,17 +87,17 @@ The agent must:
 | Layer | Choice | Why |
 |---|---|---|
 | Agent pattern | **ReAct + function calling** (tool-calling agent) | The LLM decides *when* to call a data tool vs answer from policy. Typed tools = structured outputs, predictable behavior. |
-| Orchestration | **LangGraph** prebuilt `create_react_agent` | Mature tool-calling loop, built-in checkpointed memory, LangSmith tracing for free. Prebuilt keeps it simple; a custom `StateGraph` is listed as a "more time" item. |
+| Orchestration | **LangChain 1.x `create_agent`** (`from langchain.agents import create_agent`) — the current replacement for LangGraph's `create_react_agent`; it runs on the LangGraph runtime and accepts a `checkpointer` | Mature tool-calling loop, checkpointed memory, LangSmith tracing for free. Prebuilt keeps it simple; a custom `StateGraph` is listed as a "more time" item. **Middleware (`after_model`, `before_model`, `ModelRetryMiddleware`, `SummarizationMiddleware`) is to be evaluated in slices 6/7** for the grounding check right after the model's reply and for trimming the conversation history. |
 | Policies (unstructured) | **CAG — Cache-Augmented Generation**: full policy manual injected into the system prompt | The manual is ~8 pages (a few thousand tokens). It fits in context easily, so a vector DB would only add retrieval errors, latency and moving parts. Switch to RAG (chunking + embeddings + re-ranking) if the manual grows. |
 | Operational data (structured) | CSVs → **pandas cleaning** → **SQLite** queried by **typed, parameterized tools** | No free-form text-to-SQL: least-privilege access, no SQL injection risk, deterministic results. Business math (discounts, PIX, installments) is done in Python, never by the LLM. |
-| LLM | Configurable via env (`LLM_MODEL`, LangChain `init_chat_model` format, e.g. `openai:<model>`) | Provider-agnostic. Default: a small, cheap model with solid tool-calling. Temperature low (~0.2). **Confirm with the maintainer which API key will be used.** |
+| LLM | **Gemini via Google AI Studio (free tier), Flash-line model**: `LLM_MODEL=google_genai:<flash-model-id>`, `GOOGLE_API_KEY`, package `langchain-google-genai`. **Groq** is the documented free alternative (`LLM_MODEL=groq:<model-id>`, `GROQ_API_KEY`, `langchain-groq`) — switchable through `.env` only | Provider-agnostic through `init_chat_model`. A small, fast model with solid tool-calling is enough. Temperature low (~0.2). The exact Flash model id is picked in AI Studio (not hard-coded). **Free-tier data note:** Google may use content sent on the unpaid tier to improve its products; the data here is fictional (LGPD care, state it in the README). |
+| Rate limits (free tier) | **Retry with exponential backoff on HTTP 429** (slice 6) and a **configurable pause between scenarios in `make eval`** (slice 8) | Free tiers throttle per minute/day; without this the agent and the eval run fail intermittently. |
 | Memory | LangGraph checkpointer (`MemorySaver`; `SqliteSaver` if persistence across restarts is wanted), one `thread_id` per session | Multi-turn context ("e quanto custa esse?") and order-verification flow across turns. |
 | Interface | **CLI** (primary) + **Streamlit** chat UI (if time allows) | Focus is the agent working. Streamlit is a thin layer over the same `agent.py`. |
 | Observability | **LangSmith** tracing (optional, enabled by env vars) | Shows every tool call/route decision; great for debugging. |
 | Quality | `pytest` unit tests for tools (deterministic) + small `evals/` script with ~10 scripted questions + GitHub Actions CI running pytest | Cheap signal of engineering maturity. |
 | Grounding guardrail | **Output validation in code** (`validation.py`): every `R$` value and tracking code in the final reply must appear in a tool result from the same turn; otherwise regenerate once with a correction note, then fall back to a safe message | Turns policy 7.1 ("never state price/stock without checking the system") into a code guarantee, not just a prompt instruction. |
 | Tool schemas | **Pydantic args + enums** (e.g. `Category` enum with the 9 store categories, `StringType` = nylon/steel) | Fewer malformed tool calls; the model can't invent a category. |
-| Cost/latency | **Provider prompt caching** of the static system prompt (persona + full policy) | Natural complement to CAG: the large static prefix is cached; only the conversation varies. |
 
 Explicitly **not** used (and why — put this in README):
 - Vector RAG / embeddings: unnecessary for a ~8-page manual (see CAG).
@@ -145,8 +145,10 @@ All tools return compact, structured dicts/strings. Docstrings matter: the LLM r
    - Returns price, active promo, PIX price (only if no promo), stock, status, specs, description.
    - If out of stock / discontinued / coming_soon → say so and suggest similar available items (same category, close price).
 3. `get_order_status(order_id, email_or_phone)`
-   - **Identity check (LGPD):** only returns details if the e-mail or phone matches the order's customer.
-     Normalize phone digits before comparing. Never reveal other customers' data.
+   - **Identity check (LGPD):** checked against the customer **of that order**, never by name. Only returns
+     details if the e-mail or phone matches that customer. Normalize phone digits before comparing.
+     **If the e-mail given belongs to more than one customer (`email_is_shared`, e.g. customers 11 and 43),
+     the phone is required** to release the data. Never reveal other customers' data. (Test in slice 4.)
    - Returns status (translated to PT-BR), items, total, payment method, tracking code, estimated delivery, notes.
 4. `list_active_promotions()`
    - Only `is_active == 1`. Show original price, % off, final price (policy 6.2 transparency rule).
@@ -162,11 +164,12 @@ Policies (hours, address, returns, warranty, shipping, payment rules, LGPD) are 
 ## 5. Data cleaning rules (`data_loader.py`) — document all of these in README
 
 Known issues found in the dataset:
-- **Products 135–144: descriptions contradict names/specs** (131–134 and 145 are consistent) (e.g. "Music Man Bass 1X" described as a Fender Jazz Bass;
-  "Yamaha Bass 3X" described as a 5-string Ibanez but specs say 4 strings; "Korg Synth 1 Pro" described as a
-  Roland with 88 keys but specs say 61; drum kits described as other brands).
+- **Products 135, 136, 137, 139, 140, 142, 144: descriptions contradict names/specs** (checked one by one;
+  138, 141 and 143 in the same range are coherent, as are 131–134 and 145). E.g. "Music Man Bass 1X" described
+  as a Fender Jazz Bass; "Yamaha Bass 3X" described as a 5-string Ibanez but specs say 4 strings; "Korg Synth 1
+  Pro" described as a Roland with 88 keys but specs say 61; drum kits described as other brands.
   → **Trust structured fields (name, price, stock, status, specs). Don't surface the description for these IDs**
-  (or flag `description_reliable=False`).
+  (`description_reliable=False`). 143 ("piano de palco" vs type Synthesizer) is the one borderline case, kept.
 - Product rows are not sorted by ID (145 appears before 131). Harmless; sort on load.
 - `specs` is a JSON string → parse with `json.loads`; keys differ by category (guitars/bass/drums/keys).
 - Status values: `active`, `discontinued` (113, 136), `coming_soon` (130). Product 96 is `active` with stock 0.
@@ -183,7 +186,10 @@ Known issues found in the dataset:
 - Customer duplicates/similar names exist (e.g. Bruno Carvalho / Bruno Carvalho Martins) → identify by e-mail/phone, never by name.
 
 ### Policy manual inconsistencies
-- Two phone numbers: (67) 3341-4444 (header/company data) vs WhatsApp (67) 3321-4500 (section 7).
+- Two phone numbers. Section 1.2 labels (67) 3341-4444 "Telefone / WhatsApp", but section 7 (the section about
+  remote service) says the WhatsApp channel is (67) 3321-4500. **Rule:** (67) 3341-4444 is the store's
+  landline (calls); (67) 3321-4500 is the WhatsApp number, because the dedicated section is the more specific
+  source. Document the conflict in the README.
 - E-mail written once with an accent (`contato@empóriodamusica.com.br`) — use `contato@emporiodamusica.com.br`.
 - Installment rule "≤3x: no minimum (except below R$50)" is ambiguous → interpret as minimum R$50/installment; document.
 - Store sells **only instruments** — accessories (strings, picks, cables, cases, pedals, amps) must be politely redirected.
@@ -230,9 +236,9 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
 3. `feat(pricing): promo, PIX and installment rules + tests`
 4. `feat(tools): agent tools with Pydantic schemas + tests`
 5. `feat(prompts): policy extraction and system prompt`
-6. `feat(agent): LangGraph agent with memory + CLI`
+6. `feat(agent): create_agent agent with memory + CLI` (incl. retry with backoff on 429)
 7. `feat(guardrails): grounding validation of prices and tracking codes + tests`
-8. `test(evals): trajectory + key-fact eval scenarios and runner`
+8. `test(evals): trajectory + key-fact eval scenarios and runner` (configurable pause between scenarios)
 9. `ci: GitHub Actions running ruff + pytest`
 10. `feat(ui): Streamlit chat UI` (optional — first thing to cut if late)
 11. `docs: example conversations`
@@ -252,7 +258,8 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
 Vector RAG with re-ranking if the policy base grows · custom LangGraph `StateGraph` with explicit
 nodes (classify → retrieve → answer → validate) · LLM-as-judge evals · FastAPI + Docker deploy and
 WhatsApp integration · PostgreSQL instead of SQLite · persistent cross-session memory per customer ·
-PII redaction in logs · real escalation integration (ticketing).
+PII redaction in logs · real escalation integration (ticketing) · provider prompt caching of the static
+prefix (persona + full policy) — not controllable on the free tier, so out of scope for now.
 
 ## 11. Ship checklist (before delivery)
 
@@ -263,5 +270,6 @@ PII redaction in logs · real escalation integration (ticketing).
       **AI usage** — Claude Code in VS Code + AI-Workflow skills (spec → TDD slices → verification → review),
       every commit reviewed by the maintainer.
 - [ ] `.env` not committed; no API key in history (`git log -p | grep -i key` sanity check).
+- [ ] Remove the "work in progress" banner and every **TODO** from the README.
 - [ ] Repo public; fresh clone + README steps work from scratch.
 - [ ] Submit the repo link. No pushes after that.
