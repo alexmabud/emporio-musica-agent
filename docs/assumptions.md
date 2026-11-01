@@ -294,3 +294,21 @@ with uniform keys per category.
 - **What counts as done.** A scenario that finished, passed or not, is done. A scenario that hit the daily
   quota is not recorded and runs again on resume. A scenario that fails on another model error is recorded
   as failed with the error.
+
+## Streamlit UI (slice 10)
+
+- **Thin layer.** `app.py` only draws the page; asking the agent, the failure messages, the wiring from the
+  settings, the masking and the markdown rendering live in `emporio_agent/chat.py`, shared with the CLI.
+- **The panel uses what the agent already exposes.** Tools and arguments come from the turn's messages, the
+  cases registered for a person from the arguments of `escalate_to_human` calls, and the grounding outcome
+  from the validation log (`GroundingEvents`, also used by the evals). Nothing was added to the prompt or
+  the tools.
+- **Privacy.** The customer's own messages are shown as typed, but the panel masks e-mails and phones before
+  they are stored in the turn, so the raw values never reach it. Order ids and prices are not personal data.
+- **One recorder, one process.** The grounding events come from a process-wide logger, so with several
+  browser sessions answering at the same instant a panel could show another session's retry. That is
+  acceptable for a demo; a per-request context would fix it.
+- **Choosing the model.** `--model X` after `streamlit run app.py --` (or `APP_LLM_MODEL`) replaces
+  `LLM_MODEL` and clears `LLM_FALLBACK_MODELS`; the argument wins over the variable.
+- **Not opened with a real model by the tests.** The UI is tested with Streamlit's own harness and a
+  scripted model; no conversation with a real provider is part of the test suite.

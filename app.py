@@ -1,0 +1,136 @@
+"""Streamlit chat UI: a thin layer over the same agent as the terminal chat (``make ui``).
+
+To try another model without touching ``.env``::
+
+    streamlit run app.py -- --model groq:openai/gpt-oss-120b     # or APP_LLM_MODEL=...
+
+A chosen model replaces ``LLM_MODEL`` and drops the reserve models, so nothing else is called.
+"""
+
+import os
+import sys
+import uuid
+from typing import Any
+
+import streamlit as st
+from dotenv import load_dotenv
+
+from emporio_agent.chat import (
+    EXAMPLE_QUESTIONS,
+    Turn,
+    app_settings,
+    ask,
+    build_agent_from_settings,
+    model_override,
+    to_markdown,
+)
+from emporio_agent.config import ConfigError
+
+WELCOME = (
+    "Oi! Sou o assistente virtual da Empório da Música 🎸 Posso ajudar com produtos, preços, "
+    "estoque, pedidos, trocas e dúvidas da loja. Como posso ajudar?"
+)
+
+_GROUNDING_LABELS = {
+    "approved": "aprovado ✅",
+    "retry": "retry 🔁 (um rascunho foi refeito)",
+    "safe_message": "mensagem segura 🛡️ (valores não verificados)",
+    None: "— (o modelo não respondeu)",
+}
+
+
+@st.cache_resource(show_spinner="Preparando o atendimento...")
+def load_agent(override: str | None) -> tuple[Any, str]:
+    """Build the agent once per server process and name the model it uses.
+
+    Conversations are told apart by thread id, so one agent serves every browser session.
+    """
+    load_dotenv()
+    settings = app_settings(os.environ, override)
+    return build_agent_from_settings(settings), settings.llm_model
+
+
+def new_conversation() -> None:
+    """Start a fresh conversation: a new memory thread, the welcome and an empty panel."""
+    st.session_state.thread_id = uuid.uuid4().hex
+    st.session_state.messages = [("assistant", WELCOME)]
+    st.session_state.turns = []
+
+
+def describe(turn: Turn) -> str:
+    """Markdown with the tools called, the grounding outcome and the cases registered."""
+    lines = ["**Ferramentas chamadas**"]
+    lines += [f"- `{call.name}` {call.args}" for call in turn.tools] or ["- nenhuma"]
+    lines.append(f"**Grounding:** {_GROUNDING_LABELS[turn.grounding]}")
+    if turn.escalations:
+        lines.append("**Escalações registradas**")
+        lines += [f"- `{case.reason}`: {case.summary}" for case in turn.escalations]
+    return "\n\n".join(lines)
+
+
+def render_panel(panel: Any) -> None:
+    """Fill the "Por dentro do agente" expander: the last answer, then the history."""
+    turns: list[Turn] = st.session_state.turns
+    with panel:
+        if not turns:
+            st.caption("Envie uma mensagem para ver o que o agente fez.")
+            return
+        st.markdown("#### Última resposta")
+        st.markdown(to_markdown(describe(turns[-1])))
+        if len(turns) > 1:
+            st.markdown("#### Histórico")
+            for number, turn in enumerate(turns, start=1):
+                names = ", ".join(call.name for call in turn.tools) or "nenhuma ferramenta"
+                st.markdown(
+                    to_markdown(
+                        f"**Turno {number}** · {names} · {_GROUNDING_LABELS[turn.grounding]}"
+                    )
+                )
+
+
+def main() -> None:
+    """Draw the page and handle one customer message."""
+    st.set_page_config(page_title="Empório da Música", page_icon="🎸")
+    st.title("🎸 Empório da Música")
+    st.caption("Atendimento virtual")
+
+    if "messages" not in st.session_state:
+        new_conversation()
+    try:
+        if "agent" in st.session_state:  # a ready agent (tests inject one)
+            agent, model = st.session_state["agent"], st.session_state.get("model", "?")
+        else:
+            agent, model = load_agent(model_override(sys.argv[1:], os.environ))
+    except ConfigError as error:
+        st.error(f"Erro de configuração: {error}")
+        st.stop()
+
+    clicked = None
+    with st.sidebar:
+        st.caption(f"Modelo: `{model}`")
+        st.markdown("**Exemplos**")
+        for number, question in enumerate(EXAMPLE_QUESTIONS):
+            if st.button(question, key=f"example-{number}", width="stretch"):
+                clicked = question
+        if st.button("Nova conversa", width="stretch"):
+            new_conversation()
+        panel = st.expander("Por dentro do agente")
+
+    for role, text in st.session_state.messages:
+        with st.chat_message(role):
+            st.markdown(to_markdown(text))
+
+    if prompt := st.chat_input("Escreva sua mensagem") or clicked:
+        st.session_state.messages.append(("user", prompt))
+        with st.chat_message("user"):
+            st.markdown(to_markdown(prompt))
+        with st.chat_message("assistant"), st.spinner("Consultando..."):
+            turn = ask(agent, st.session_state.thread_id, prompt)
+            st.markdown(to_markdown(turn.reply))
+        st.session_state.messages.append(("assistant", turn.reply))
+        st.session_state.turns.append(turn)
+
+    render_panel(panel)
+
+
+main()

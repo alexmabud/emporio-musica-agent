@@ -12,7 +12,7 @@ chat:
 	$(PY) -m emporio_agent.cli
 
 ui:
-	$(VENV)/bin/streamlit run app.py
+	$(VENV)/bin/streamlit run app.py -- $(ARGS)
 
 test:
 	$(PY) -m pytest

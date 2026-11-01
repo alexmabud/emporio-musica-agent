@@ -127,6 +127,35 @@ def _log_failure(event: str, ungrounded: list[str], **fields: int) -> None:
     )
 
 
+class GroundingEvents(logging.Handler):
+    """Records the grounding check's failures while it is active (use it as a context manager).
+
+    Attributes:
+        events: Event names in order: ``grounding_retry`` and ``grounding_safe_message``.
+    """
+
+    def __init__(self) -> None:
+        """Start with no events."""
+        super().__init__(level=logging.WARNING)
+        self.events: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Keep the event name of a grounding record."""
+        try:
+            self.events.append(json.loads(record.getMessage())["event"])
+        except (ValueError, KeyError):
+            pass
+
+    def __enter__(self) -> "GroundingEvents":
+        """Start recording."""
+        logger.addHandler(self)
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        """Stop recording."""
+        logger.removeHandler(self)
+
+
 def _is_note(message: BaseMessage) -> bool:
     return (message.id or "").startswith(_NOTE_ID_PREFIX)
 

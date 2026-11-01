@@ -13,7 +13,6 @@ partial file becomes the model's full result.
 
 import argparse
 import json
-import logging
 import os
 import tempfile
 import time
@@ -32,6 +31,7 @@ from emporio_agent.config import PROJECT_ROOT, ConfigError, Settings, load_setti
 from emporio_agent.data_loader import build_database
 from emporio_agent.policies import load_policy_text
 from emporio_agent.tools import build_tools
+from emporio_agent.validation import GroundingEvents
 from evals.checks import Check, Level, Run, TurnResult
 from evals.scenarios import SCENARIOS, Scenario
 from evals.version import compute_version, differences
@@ -78,22 +78,6 @@ class CallCounter(BaseCallbackHandler):
     def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
         """Count one failed request."""
         self.failed += 1
-
-
-class _GroundingEvents(logging.Handler):
-    """Collects the grounding check's failure records (JSON lines) during a scenario."""
-
-    def __init__(self) -> None:
-        """Start with no events."""
-        super().__init__(level=logging.WARNING)
-        self.events: list[str] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """Keep the event name of the record."""
-        try:
-            self.events.append(json.loads(record.getMessage())["event"])
-        except (ValueError, KeyError):
-            pass
 
 
 def model_slug(spec: str) -> str:
@@ -163,13 +147,11 @@ def run_scenario(agent_factory: AgentFactory, scenario: Scenario, workdir: Path)
     """
     escalations_path = workdir / f"escalations-{scenario.id}.jsonl"
     agent = agent_factory(escalations_path)
-    counter, grounding = CallCounter(), _GroundingEvents()
+    counter = CallCounter()
     config = {"configurable": {"thread_id": f"eval-{scenario.id}"}, "callbacks": [counter]}
-    logger = logging.getLogger("emporio_agent.validation")
-    logger.addHandler(grounding)
     turns = []
     result: dict[str, Any] = {"messages": []}
-    try:
+    with GroundingEvents() as grounding:
         for message in scenario.messages:
             started = time.perf_counter()
             result = agent.invoke({"messages": [("user", message)]}, config=config)
@@ -181,8 +163,6 @@ def run_scenario(agent_factory: AgentFactory, scenario: Scenario, workdir: Path)
                     latency_s=round(time.perf_counter() - started, 1),
                 )
             )
-    finally:
-        logger.removeHandler(grounding)
     records: tuple[dict[str, Any], ...] = ()
     if escalations_path.exists():
         lines = escalations_path.read_text(encoding="utf-8").splitlines()

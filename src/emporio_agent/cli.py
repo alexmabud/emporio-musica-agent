@@ -8,10 +8,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from emporio_agent.agent import build_agent, create_model, is_daily_quota_error, reply_text
+from emporio_agent.chat import answer, build_agent_from_settings
 from emporio_agent.config import ConfigError, load_settings
-from emporio_agent.data_loader import build_database
-from emporio_agent.policies import load_policy_text
 
 _EXIT_WORDS = frozenset({"sair", "exit", "quit"})
 _BANNER = (
@@ -19,19 +17,6 @@ _BANNER = (
     "Digite 'sair' para encerrar ou '/novo' para recomeçar a conversa."
 )
 _FAREWELL = "Até logo! 🎸"
-
-
-def _failure_message(error: Exception) -> str:
-    """Explain a model failure to the customer without a stack trace."""
-    if is_daily_quota_error(error):
-        return (
-            "O atendimento automático atingiu o limite diário de uso. Fale com a nossa equipe "
-            "pelo WhatsApp (67) 3321-4500."
-        )
-    return (
-        f"Não consegui falar com o modelo ({type(error).__name__}). "
-        "Confira a chave e o modelo no .env e tente de novo."
-    )
 
 
 def run_chat(
@@ -63,14 +48,7 @@ def run_chat(
             thread_id = uuid.uuid4().hex
             write("(nova conversa)")
             continue
-        try:
-            result = agent.invoke(
-                {"messages": [("user", text)]}, config={"configurable": {"thread_id": thread_id}}
-            )
-        except Exception as error:
-            write(_failure_message(error))
-            continue
-        write(f"Atendente: {reply_text(result)}")
+        write(f"Atendente: {answer(agent, thread_id, text)}")
 
 
 def main() -> None:
@@ -80,18 +58,7 @@ def main() -> None:
         settings = load_settings(os.environ)
     except ConfigError as error:
         sys.exit(f"Erro de configuração: {error}")
-    build_database(settings.data_dir, settings.db_path)
-
-    agent = build_agent(
-        create_model(settings.llm_model, settings.llm_temperature),
-        fallback_models=[
-            create_model(name, settings.llm_temperature) for name in settings.llm_fallback_models
-        ],
-        grounding_max_retries=settings.grounding_max_retries,
-        db_path=settings.db_path,
-        escalations_path=settings.escalations_path,
-        policy_text=load_policy_text(settings.policy_pdf),
-    )
+    agent = build_agent_from_settings(settings)
     run_chat(agent)
 
 

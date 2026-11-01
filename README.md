@@ -41,7 +41,7 @@ make install                  # venv + dependencies (+ pytest and ruff)
 make chat                     # interactive CLI
 ```
 
-Other commands: `make ui` (Streamlit chat, optional), `make test` (deterministic tests, no LLM calls),
+Other commands: `make ui` (Streamlit chat at http://localhost:8501, same agent and `.env` as the CLI; see [Streamlit UI](#streamlit-ui)), `make test` (deterministic tests, no LLM calls),
 `make eval` (scripted scenarios, calls the LLM), `make lint`.
 
 **Without `make`** (any OS, same result):
@@ -106,6 +106,29 @@ The model decides on its own whether a question needs data, policy, or neither. 
 `calculate_payment_options` and `escalate_to_human` are the legitimate exceptions: they apply policy rules
 but need a tool to do exact math or to hand the case to a person.
 
+## Streamlit UI
+
+`make ui` opens a chat page over the same agent as the terminal. Besides the conversation it has, in the
+sidebar:
+
+- the **model in use** and **example buttons** (catalog, order status, return, a service the manual only
+  mentions in passing) that send the question as if typed;
+- a collapsible **"Por dentro do agente"** panel: for the last answer, the tools called with short arguments,
+  the grounding outcome (approved, retry, or safe message) and the cases registered for a person, plus one
+  line per turn of the conversation. It uses what the agent already exposes. E-mails and phones are masked
+  (`an***@coldmail.com`, `(67) 9****-7821`) before they reach the panel.
+- a spinner while the agent answers, and a **New conversation** button.
+
+To try another model without editing `.env` (for example on the development provider):
+
+```bash
+make ui ARGS="--model groq:openai/gpt-oss-120b"      # or APP_LLM_MODEL=groq:openai/gpt-oss-120b make ui
+```
+
+A chosen model replaces `LLM_MODEL` **and drops the reserve models**, so testing the UI on one provider can
+never fall back to another one and spend its quota. The page also escapes `$`, because Streamlit would
+otherwise read `R$ 549,00 ... R$ 439,20` as a math formula.
+
 ## Technical decisions
 
 | Decision | Choice | Why |
@@ -119,7 +142,7 @@ but need a tool to do exact math or to hand the case to a person.
 | Model | Two providers, two roles, chosen only by `LLM_MODEL`: **`gemini-3.5-flash`** (Google AI Studio) as the reference and **`openai/gpt-oss-120b`** (Groq) for development. Temperature around 0.2. See [Why this model](#why-this-model). | Both are free and support tool calling. Gemini's daily quota is too small to iterate on a prompt, Groq's is large but slow; each does the job the other cannot. |
 | Rate limits (free tier) | Retry with exponential backoff (up to 4 retries, waiting 4, 8, 16 and 32 s, about a minute) for per-minute limits, 503/504 and network errors; **no retry for a daily quota**; a chain of reserve models; a polite message when everything is exhausted. A configurable pause between scenarios in `make eval` is still planned (slice 8). | Both free tiers throttle, in different ways (see [Free-tier quota](#free-tier-quota)). |
 | Memory | LangGraph checkpointer, one `thread_id` per session | Multi-turn context ("and how much is that one?") and order verification across turns. In-memory by default. |
-| Interface | CLI first, Streamlit if time allows | The focus is the agent. The UI is a thin layer over the same `agent.py`. |
+| Interface | CLI first, plus a Streamlit chat | The focus is the agent. Both interfaces are thin layers over the same agent (`emporio_agent/chat.py` holds what they share). The Streamlit page escapes `$` so prices are not rendered as math, and turns WhatsApp `*bold*` into markdown bold. |
 | Observability | Optional LangSmith tracing | Shows every tool call and routing decision when debugging. |
 
 > **Privacy note (LGPD care).** On the free tier, Google may use the content sent to the API to improve its
@@ -416,6 +439,13 @@ pasted here after the final run on the reference model.
 - Product search is filter-based plus fuzzy name matching, not semantic. Vague requests ("something warm
   for jazz") depend on the model translating them into filters.
 - The grounding check validates `R$` values and tracking codes, not every factual claim.
+- **The Streamlit panel can mix sessions.** The grounding outcome shown in "Por dentro do agente" comes from
+  a process-wide logger, so two browser sessions answering at the same instant may see each other's retry.
+  That is acceptable for a demo; with more time it would be captured per request.
+- **Repeated searches in empty categories.** The model sometimes repeats searches in categories without
+  products (eval scenario 6: three `search_products` calls for "saxofone" on the reference model, six
+  requests in total). With more time, the tool would return an explicit "category without products" result,
+  so one call is enough.
 - **Information in the context does not guarantee its use.** That the store does custom adjustments is
   written in the exchange section (policy 4.4), and the development model does not connect it to questions
   about services ("vocês fazem regulagem de violão?"). The answer is safe (it does not deny the service and
