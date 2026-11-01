@@ -1,0 +1,43 @@
+name: CI
+
+# Lint and the deterministic tests only. No API key and no model call: the tests use a scripted
+# chat model. The LLM eval (`make eval`) is run by hand, never here.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Tests
+        run: pytest

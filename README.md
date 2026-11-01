@@ -1,5 +1,7 @@
 # Empório da Música — Customer Service Agent
 
+[![CI](https://github.com/alexmabud/emporio-musica-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/alexmabud/emporio-musica-agent/actions/workflows/ci.yml)
+
 A text-message customer service agent for *Empório da Música*, a fictional musical instrument store in
 Campo Grande/MS. It answers in Brazilian Portuguese, looks up live store data (prices, stock, promotions,
 order status) through typed tools, and answers policy questions (returns, hours, payment, shipping) from the
@@ -55,6 +57,9 @@ python -m emporio_agent.cli        # interactive CLI ('sair' to leave, '/novo' f
 pytest                             # tests, no LLM calls
 ruff check . && ruff format --check .
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the same lint and tests on every push and pull request,
+on Python 3.11 with a pip cache. It needs no API key and never calls a model; `make eval` is run by hand.
 
 **Environment variables** (documented in `.env.example`, which is kept in sync):
 
