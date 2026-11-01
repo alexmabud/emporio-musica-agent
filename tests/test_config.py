@@ -52,3 +52,17 @@ def test_fallback_models_are_a_comma_separated_list() -> None:
     env = {"LLM_MODEL": "a:main", "LLM_FALLBACK_MODELS": " a:one , a:two ,, "}
     assert load_settings(env, root=ROOT).llm_fallback_models == ("a:one", "a:two")
     assert load_settings({"LLM_MODEL": "a:main"}, root=ROOT).llm_fallback_models == ()
+
+
+def test_grounding_retries_default_to_one_and_can_be_changed() -> None:
+    """GROUNDING_MAX_RETRIES: one regeneration by default, 0 allowed, junk rejected by name."""
+    assert load_settings({"LLM_MODEL": "a:b"}, root=ROOT).grounding_max_retries == 1
+    assert (
+        load_settings(
+            {"LLM_MODEL": "a:b", "GROUNDING_MAX_RETRIES": "0"}, root=ROOT
+        ).grounding_max_retries
+        == 0
+    )
+    for bad in ("-1", "many", "1.5"):
+        with pytest.raises(ConfigError, match="GROUNDING_MAX_RETRIES"):
+            load_settings({"LLM_MODEL": "a:b", "GROUNDING_MAX_RETRIES": bad}, root=ROOT)

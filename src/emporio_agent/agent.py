@@ -27,6 +27,7 @@ from langgraph.runtime import Runtime
 from emporio_agent.hours import STORE_TIMEZONE
 from emporio_agent.prompts import build_system_prompt
 from emporio_agent.tools import build_tools
+from emporio_agent.validation import build_grounding_check
 
 # Free tiers throttle (429) and busy models answer 503/504 now and then: a retry usually passes.
 _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
@@ -37,6 +38,9 @@ RETRY_INITIAL_DELAY = 4.0
 
 # Messages (customer, model and tool) kept per conversation; older ones stop being re-sent.
 MAX_HISTORY_MESSAGES = 40
+
+# Times a reply with unverified amounts is regenerated before the safe message is sent.
+GROUNDING_MAX_RETRIES = 1
 
 APOLOGY = (
     "Estou com uma instabilidade para consultar o sistema agora. Pode tentar de novo em alguns "
@@ -84,8 +88,9 @@ def build_agent(
     retry_initial_delay: float = RETRY_INITIAL_DELAY,
     max_history_messages: int = MAX_HISTORY_MESSAGES,
     fallback_models: Sequence[BaseChatModel] = (),
+    grounding_max_retries: int = GROUNDING_MAX_RETRIES,
 ) -> Any:
-    """Build the agent: the model, the six store tools, the prompt and per-thread memory.
+    """Build the agent: the model, the six store tools, the prompt, memory and the grounding check.
 
     Args:
         model: Chat model that supports tool calling.
@@ -98,6 +103,8 @@ def build_agent(
         max_history_messages: How many of the latest messages of a conversation are kept.
         fallback_models: Models tried in order when the main one fails. Free-tier quotas are per
             model, so reserves keep the agent answering when one runs out.
+        grounding_max_retries: How many times a reply that states an amount or tracking code no
+            tool, policy or customer message supports is regenerated before the safe message.
 
     Returns:
         A compiled agent; invoke it with ``{"messages": [...]}`` and a ``thread_id``.
@@ -141,6 +148,7 @@ def build_agent(
             *([ModelFallbackMiddleware(*fallback_models)] if fallback_models else []),
             trim_history,
             system_prompt,
+            build_grounding_check(policy_text, grounding_max_retries),
         ],
         checkpointer=checkpointer or InMemorySaver(),
     )

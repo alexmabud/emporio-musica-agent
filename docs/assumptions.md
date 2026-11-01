@@ -162,3 +162,28 @@ with uniform keys per category.
 - The e-mail is written once with an accent (`contato@empóriodamusica.com.br`); the header version
   `contato@emporiodamusica.com.br` is used.
 - The manual mentions "more than 300 instruments"; the dataset has 65 products.
+
+## Grounding check (slice 7)
+
+- **What is checked.** Only `R$` amounts and tracking codes in the *final* reply (a step that still calls
+  tools has nothing to show the customer). It does not verify every factual claim; stock, dates and
+  promotion names are still guarded by the prompt only.
+- **What counts as grounded.** An amount is grounded if it appears in any tool result of the whole
+  conversation (a price from an earlier turn may be repeated), in the policy manual (for example the
+  R$ 500 free-shipping rule) or in the customer's messages (so "violões até 1000" can be echoed as
+  "até R$ 1.000"). A tracking code must come from a tool result.
+- **Compared by value, in either number format.** `R$ 1.000`, `R$1000` and `R$ 1.000,00` are the same
+  amount; U+202F and U+00A0 are treated as spaces. A thousands separator always separates groups of exactly
+  3 digits, so: `1.000` and `12.500` are thousands, `439.20` (dot + 2 digits, no comma) is R$ 439,20,
+  `1.000,50` and `1,000.50` are both 1000.50, and `1,000` (comma + 3 digits is not cents) is 1000. A
+  sentence-final dot (`R$ 500,00.`) is not part of the number. `R$ 439` is still ungrounded when the tool
+  returned `R$ 439,20`. The retry note and the system prompt ask for the Brazilian format (`R$ 1.234,56`).
+- **On failure.** The bad draft is removed, a correction note (a message whose id starts with
+  `grounding-note-`) names the offending values, and the model tries again. After `GROUNDING_MAX_RETRIES`
+  (default 1) the customer gets `SAFE_MESSAGE` and the WhatsApp number. Drafts and notes are removed from
+  the history, so later turns never see them. Each retry costs one more model call (30-60 s on Groq free).
+- **Failure log.** Each retry and each fall back to the safe message writes one JSON line at WARNING level
+  to the `emporio_agent.validation` logger: `{"event": "grounding_retry" | "grounding_safe_message",
+  "ungrounded": [...], ...}` with the attempt counters. It holds the unverified values only, never the
+  customer's text, so it carries no personal data. Approved replies log nothing. Without a logging setup
+  the lines go to stderr, which is enough to audit a development session.

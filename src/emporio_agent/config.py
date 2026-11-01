@@ -19,6 +19,7 @@ class Settings:
         llm_model: Model in LangChain ``init_chat_model`` format, e.g. ``google_genai:<model>``.
         llm_temperature: Sampling temperature.
         llm_fallback_models: Reserve models, tried in order when the main one fails.
+        grounding_max_retries: Regenerations allowed for a reply with unverified amounts.
         data_dir: Folder with the original CSVs and the policy PDF.
         policy_pdf: The policy manual.
         db_path: SQLite file rebuilt from the CSVs (git-ignored).
@@ -28,6 +29,7 @@ class Settings:
     llm_model: str
     llm_temperature: float
     llm_fallback_models: tuple[str, ...]
+    grounding_max_retries: int
     data_dir: Path
     policy_pdf: Path
     db_path: Path
@@ -51,7 +53,8 @@ def load_settings(env: Mapping[str, str], root: Path = PROJECT_ROOT) -> Settings
         The validated settings.
 
     Raises:
-        ConfigError: If ``LLM_MODEL`` is missing or ``LLM_TEMPERATURE`` is not a number.
+        ConfigError: If ``LLM_MODEL`` is missing, ``LLM_TEMPERATURE`` is not a number or
+            ``GROUNDING_MAX_RETRIES`` is not a non-negative integer.
     """
     model = (env.get("LLM_MODEL") or "").strip()
     if not model:
@@ -65,12 +68,18 @@ def load_settings(env: Mapping[str, str], root: Path = PROJECT_ROOT) -> Settings
         raise ConfigError(
             f"LLM_TEMPERATURE must be a number, got {env.get('LLM_TEMPERATURE')!r}."
         ) from error
+    retries_text = (env.get("GROUNDING_MAX_RETRIES") or "1").strip()
+    if not retries_text.isdigit():
+        raise ConfigError(
+            f"GROUNDING_MAX_RETRIES must be a non-negative integer, got {retries_text!r}."
+        )
     fallbacks = [name.strip() for name in (env.get("LLM_FALLBACK_MODELS") or "").split(",")]
     data_dir = root / "data"
     return Settings(
         llm_model=model,
         llm_temperature=temperature,
         llm_fallback_models=tuple(name for name in fallbacks if name),
+        grounding_max_retries=int(retries_text),
         data_dir=data_dir,
         policy_pdf=data_dir / "politicas_da_loja.pdf",
         db_path=_path(env, "DB_PATH", "var/emporio.db", root),

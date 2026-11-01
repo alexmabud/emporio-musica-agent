@@ -258,6 +258,12 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
 
 ## 8. Commit plan (keep commits small and real)
 
+**Rule from slice 7 on: one commit per slice.** The code, its tests and the documentation that talks about
+the same subject go together in a single commit (message `type(scope): ...`, body explaining why). Split a
+slice only when a part is independently useful or when the repository would break in between; documentation
+that spans several slices (for example the final README) keeps its own commit. Slices 1 to 6 were committed
+in finer pieces (code, tests and docs apart) and stay as they are; history is never rewritten.
+
 1. `chore: project scaffold, Makefile, requirements, .env.example, skills`
 2. `feat(data): loader with cleaning rules + SQLite`
 3. `feat(pricing): promo, PIX and installment rules + tests`
@@ -274,7 +280,7 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
 ## 9. How to work with the maintainer
 
 - The maintainer reviews and commits each step. **Don't commit or push on their behalf unless asked.**
-  Stop at the end of each step with a one-line suggested commit message.
+  Stop at the end of each step with a suggested commit message (one commit per slice, see §8).
 - Explain non-obvious code briefly: every decision must be defensible and explainable.
 - Never invent data. If something is ambiguous, pick a reasonable interpretation and add it to a
   `docs/assumptions.md` list (which feeds the README).

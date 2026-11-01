@@ -64,6 +64,7 @@ ruff check . && ruff format --check .
 | `GOOGLE_API_KEY` | Google AI Studio key (free tier), used when `LLM_MODEL` starts with `google_genai:`. |
 | `GROQ_API_KEY` | Groq key (free tier), used when `LLM_MODEL` starts with `groq:`. |
 | `LLM_FALLBACK_MODELS` | Optional reserve models, comma-separated, tried in order when the main one fails (see [Free-tier quota](#free-tier-quota)). |
+| `GROUNDING_MAX_RETRIES` | How many times a reply that states a price or tracking code no tool, policy or customer message supports is regenerated before the safe message is sent (default `1`; each retry is one more model call). |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Optional tracing. Leave `LANGSMITH_TRACING=false` to disable. |
 
 Two providers are supported and **only `LLM_MODEL` selects one**; the code does not change. Keep both
@@ -105,7 +106,7 @@ but need a tool to do exact math or to hand the case to a person.
 | Decision | Choice | Why |
 |---|---|---|
 | Agent pattern | ReAct with function calling | The task is "know when to query data versus policy". A tool-calling loop lets the model make that call and keeps outputs structured. |
-| Orchestration | LangChain 1.x `create_agent` | The current replacement for LangGraph's `create_react_agent`. It runs on the LangGraph runtime, so it keeps the tool loop, a checkpointer for memory and tracing. Its middleware (`after_model`, `before_model`) will be evaluated in slices 6/7 for the grounding check right after the model's reply and for trimming the history. A custom `StateGraph` is a "with more time" item. |
+| Orchestration | LangChain 1.x `create_agent` | The current replacement for LangGraph's `create_react_agent`. It runs on the LangGraph runtime, so it keeps the tool loop, a checkpointer for memory and tracing. Its middleware hooks are used for the history trimming (`before_model`) and the grounding check right after the model's reply (`after_model`). A custom `StateGraph` is a "with more time" item. |
 | Policies | Cache-augmented generation: the full manual goes into the system prompt | The manual is 8 pages: with the persona and rules the whole prompt is about 4,000 tokens (measured with Gemini), under 0.5% of the context window. A vector store would add retrieval errors, latency and moving parts for no gain. Move to RAG if the manual grows. |
 | Operational data | CSVs cleaned with pandas, loaded into SQLite, read through typed, parameterized tools | No free-form text-to-SQL: no injection risk, least privilege and deterministic results. |
 | Business math | Python (`pricing.py`), never the LLM | Discounts, PIX and installments must be exact and testable. |
@@ -250,9 +251,13 @@ provider removes the limit; only `.env` changes.
   order**. Phones are normalized to digits before comparing. If the e-mail given belongs to more than one
   customer (see customers 11 and 43 under [Data handling](#data-handling)), the phone is required to release
   the data. Customers are never identified by name.
-- **Grounding validation:** every `R$` value and tracking code in the final reply must appear in a tool
-  result from the same turn. Otherwise the agent regenerates once with a correction note, then falls back to a
-  safe message. This turns "never state a price without checking the system" into a guarantee.
+- **Grounding validation** (`validation.py`, an `after_model` middleware): every `R$` value and tracking code
+  in the final reply must appear in a tool result of the conversation, in the policy manual or in the
+  customer's own messages. Otherwise the model is asked again once (`GROUNDING_MAX_RETRIES`) with a note
+  naming the offending values, and then the customer gets a safe message with no amount in it. Amounts are
+  compared by value, in Brazilian or American format (`R$ 1.000` equals `R$1000,00`; `R$ 439.20` equals `R$ 439,20`), after normalizing the odd spaces some models write. Every retry and
+  safe-message fallback is logged as a JSON line (unverified values only, no customer text). This
+  turns "never state a price without checking the system" into a guarantee, in code and not only in the prompt.
 - **Human escalation:** complaints and anything the policy says needs a manager go through
   `escalate_to_human`, which logs the case and tells the customer the response window.
 
@@ -334,7 +339,7 @@ results table will be pasted here.
 - On the Groq free tier a question with a tool takes 30 to 60 seconds, because the prompt (about 4,700
   tokens) nearly fills the 8,000 tokens-per-minute budget. Shrinking the prompt would speed it up.
 - The `gpt-oss` models write `R$\u202f2.199,00`, with a narrow no-break space after "R$". It looks the same to
-  a customer, but a plain string comparison fails, so the grounding check (slice 7) must normalize spaces.
+  a customer, but a plain string comparison fails, so the grounding check normalizes spaces before comparing.
 - Reserve models are Flash-Lite, which in the routing check were more likely to skip an escalation, so quality
   drops when the main model is out of quota.
 - The free Gemini tier answers with HTTP 503 ("high demand") now and then, on any model. The agent needs a

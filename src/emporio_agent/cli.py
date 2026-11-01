@@ -96,6 +96,7 @@ def main() -> None:
     agent = build_agent(
         make_model(settings.llm_model),
         fallback_models=[make_model(name) for name in settings.llm_fallback_models],
+        grounding_max_retries=settings.grounding_max_retries,
         db_path=settings.db_path,
         escalations_path=settings.escalations_path,
         policy_text=load_policy_text(settings.policy_pdf),

@@ -69,6 +69,7 @@ def test_the_current_moment_and_store_status_are_injected(policy: str) -> None:
         "chame escalate_to_human já",
         "nunca diga que registrou ou encaminhou algo sem ter chamado escalate_to_human",
         "só mencione se a loja está aberta ou fechada quando",
+        "formato brasileiro",
     ],
 )
 def test_the_rules_the_specification_requires_are_in_the_prompt(prompt: str, phrase: str) -> None:
