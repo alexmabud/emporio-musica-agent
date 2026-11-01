@@ -10,4 +10,5 @@ langgraph>=1.0
 langchain-google-genai>=3.0
 # Development provider (free), switchable through LLM_MODEL only (see .env.example):
 langchain-groq>=1.0
-streamlit>=1.35
+# Pinned: the chat-input CSS in app.py targets Streamlit's internal selectors (see docs/assumptions.md).
+streamlit==1.66.1

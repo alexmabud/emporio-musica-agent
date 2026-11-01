@@ -1,3 +1,7 @@
 [client]
 # Hide the Deploy button and the developer menu: a demo shows only the chat.
 toolbarMode = "minimal"
+
+[theme]
+# Green primary color: the "Nova conversa" button is the only primary button.
+primaryColor = "#1f9d55"

@@ -317,3 +317,14 @@ with uniform keys per category.
   without the "Atendente:" prefix in the terminal. Startup problems (missing model or key) are warnings too,
   and name the error type but not its text, which could carry a key. The warning stays on screen in its
   place in the conversation and is not remembered by the agent as something it said.
+- **Typing-box styling and the Streamlit pin.** The border (2px in the theme's `primaryColor`), the rounded
+  corners, the focus glow and the white fill are CSS injected with `st.markdown(..., unsafe_allow_html=True)`.
+  It targets Streamlit's internal markup: `[data-testid="stChatInput"]` is the outer element and its first
+  child `div` is the bordered box (checked in the installed bundle, `ChatInput.*.js`). That is not a public
+  API, so `streamlit` is pinned to the version it was written against (`==1.66.1`, the same that the
+  tests and CI run) and a test fails if the pin and the installed version drift apart. After any upgrade the
+  box has to be looked at in a browser. The harness only checks that the CSS is emitted with the right
+  selector and values; it cannot render it. The green is read from `theme.primaryColor` with the same value as
+  fallback, so the config stays the single source.
+- **Welcome and placeholder are UI texts, not the prompt.** They are fixed strings in `app.py`; the welcome
+  tells the customer where to type and that the examples are in the sidebar.

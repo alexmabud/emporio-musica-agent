@@ -27,9 +27,12 @@ from emporio_agent.chat import (
 )
 
 WELCOME = (
-    "Oi! Sou o assistente virtual da Empório da Música 🎸 Posso ajudar com produtos, preços, "
-    "estoque, pedidos, trocas e dúvidas da loja. Como posso ajudar?"
+    "Oi! Sou o assistente virtual da Empório da Música 🎸 Posso ajudar com produtos, pedidos, "
+    "trocas e dúvidas da loja. É só digitar aqui embaixo 👇"
 )
+
+# The theme's primary color (.streamlit/config.toml); the fallback is the same green.
+PRIMARY_GREEN = "#1f9d55"
 
 _GROUNDING_LABELS = {
     "approved": "aprovado ✅",
@@ -50,6 +53,24 @@ def load_agent(override: str | None) -> tuple[Any, str]:
     return build_agent_from_settings(settings), settings.llm_model
 
 
+def chat_input_css(color: str) -> str:
+    """CSS for the typing box: a 2px border in ``color``, rounded corners, a focus glow, white fill.
+
+    It aims at Streamlit's internal markup (``data-testid="stChatInput"``, whose first child is the
+    bordered box), which is why the Streamlit version is pinned in ``requirements.txt``.
+    """
+    return f"""<style>
+[data-testid="stChatInput"] > div {{
+    border: 2px solid {color} !important;
+    border-radius: 14px !important;
+    background-color: #ffffff !important;
+}}
+[data-testid="stChatInput"] > div:focus-within {{
+    box-shadow: 0 0 0 4px {color}33 !important;
+}}
+</style>"""
+
+
 def new_conversation() -> None:
     """Start a fresh conversation: a new memory thread, the welcome and an empty panel."""
     st.session_state.thread_id = uuid.uuid4().hex
@@ -68,10 +89,11 @@ def describe(turn: Turn) -> str:
     return "\n\n".join(lines)
 
 
-def render_panel(panel: Any) -> None:
-    """Fill the "Por dentro do agente" expander: the last answer, then the history."""
+def render_panel(panel: Any, model: str) -> None:
+    """Fill the "Por dentro do agente" expander: the model, the last answer, then the history."""
     turns: list[Turn] = st.session_state.turns
     with panel:
+        st.caption(f"Modelo: `{model}`")
         if not turns:
             st.caption("Envie uma mensagem para ver o que o agente fez.")
             return
@@ -91,6 +113,10 @@ def render_panel(panel: Any) -> None:
 def main() -> None:
     """Draw the page and handle one customer message."""
     st.set_page_config(page_title="Empório da Música", page_icon="🎸")
+    st.markdown(
+        chat_input_css(st.get_option("theme.primaryColor") or PRIMARY_GREEN),
+        unsafe_allow_html=True,
+    )
     st.title("🎸 Empório da Música")
     st.caption("Atendimento virtual")
 
@@ -107,13 +133,17 @@ def main() -> None:
 
     clicked = None
     with st.sidebar:
-        st.caption(f"Modelo: `{model}`")
-        st.markdown("**Exemplos**")
+        st.markdown("**Não sabe por onde começar? Experimente uma destas perguntas:**")
         for number, question in enumerate(EXAMPLE_QUESTIONS):
             if st.button(question, key=f"example-{number}", width="stretch"):
                 clicked = question
-        if st.button("Nova conversa", width="stretch"):
-            new_conversation()
+        st.divider()
+        with st.container(gap="xxsmall"):  # question, button and note sit close together
+            st.markdown("**Gostaria de iniciar uma nova conversa?**")
+            if st.button("Nova conversa", type="primary", width="stretch"):
+                new_conversation()
+            st.caption("O histórico atual será apagado.")
+        st.divider()
         panel = st.expander("Por dentro do agente")
 
     for role, text in st.session_state.messages:
@@ -123,7 +153,12 @@ def main() -> None:
             with st.chat_message(role):
                 st.markdown(to_markdown(text))
 
-    if prompt := st.chat_input("Escreva sua mensagem") or clicked:
+    if (
+        prompt := st.chat_input(
+            "Digite sua dúvida aqui (ex.: preço do Yamaha C40 ou status do meu pedido)"
+        )
+        or clicked
+    ):
         st.session_state.messages.append(("user", prompt))
         with st.chat_message("user"):
             st.markdown(to_markdown(prompt))
@@ -138,7 +173,7 @@ def main() -> None:
             st.session_state.messages.append(("assistant", turn.reply))
         st.session_state.turns.append(turn)
 
-    render_panel(panel)
+    render_panel(panel, model)
 
 
 main()

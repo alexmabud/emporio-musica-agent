@@ -111,17 +111,22 @@ but need a tool to do exact math or to hand the case to a person.
 `make ui` opens a chat page over the same agent as the terminal. Besides the conversation it has, in the
 sidebar:
 
-- the **model in use** and **example buttons** (catalog, order status, return, a service the manual only
-  mentions in passing) that send the question as if typed;
-- a collapsible **"Por dentro do agente"** panel: for the last answer, the tools called with short arguments,
+- **example buttons** (catalog, order status, return, a service the manual only mentions in passing) that
+  send the question as if typed;
+- a collapsible **"Por dentro do agente"** panel, the only part meant for whoever is testing, so the rest of
+  the sidebar is just customer content. It starts with the **model in use**; then, for the last answer, the tools called with short arguments,
   the grounding outcome (approved, retry, or safe message) and the cases registered for a person, plus one
   line per turn of the conversation. It uses what the agent already exposes. E-mails and phones are masked
   (`an***@coldmail.com`, `(67) 9****-7821`) before they reach the panel.
-- a spinner while the agent answers, and a **New conversation** button.
+- a spinner while the agent answers, and a **New conversation** block (a green button, with a note that the
+  current history will be erased) below the examples.
 - **System messages are warnings, not assistant speech.** A model failure (daily quota, invalid key) or a
   configuration problem appears as a warning box outside the chat bubbles, so it is never mistaken for
   something the assistant said. The terminal chat does the same: such lines have no "Atendente:" prefix.
-- `.streamlit/config.toml` sets the toolbar to minimal, which hides the Deploy button and the developer menu.
+- `.streamlit/config.toml` sets the toolbar to minimal, which hides the Deploy button and the developer menu,
+  and the green primary color. The typing box is styled to match (2px green border, rounded corners, a soft
+  glow on focus, white background) with a little CSS aimed at Streamlit's internal markup, so **the Streamlit
+  version is pinned** in `requirements.txt`.
 
 To try another model without editing `.env` (for example on the development provider):
 
@@ -443,6 +448,9 @@ pasted here after the final run on the reference model.
 - Product search is filter-based plus fuzzy name matching, not semantic. Vague requests ("something warm
   for jazz") depend on the model translating them into filters.
 - The grounding check validates `R$` values and tracking codes, not every factual claim.
+- **The typing-box styling depends on Streamlit internals.** The CSS targets `data-testid="stChatInput"` and
+  its first child, which are not a public API, so `streamlit` is pinned (`==1.66.1`) and an upgrade means
+  checking the box by eye. The test harness does not render CSS, so only the page in a browser shows it.
 - **The Streamlit panel can mix sessions.** The grounding outcome shown in "Por dentro do agente" comes from
   a process-wide logger, so two browser sessions answering at the same instant may see each other's retry.
   That is acceptable for a demo; with more time it would be captured per request.

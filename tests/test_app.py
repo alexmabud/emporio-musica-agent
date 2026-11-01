@@ -2,6 +2,7 @@
 
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -153,10 +154,20 @@ def _sidebar_text(at: AppTest) -> str:
     return "\n".join(parts)
 
 
-def test_the_sidebar_shows_the_model_in_use(db_path: Path, policy: str, tmp_path: Path) -> None:
-    """The person testing the UI always sees which model answers."""
+def test_the_model_is_the_first_line_of_the_agent_panel_not_of_the_sidebar(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """The person testing sees which model answers, but the customer's sidebar has none of it."""
     at = _app(ScriptedChatModel(script=[]), db_path, policy, tmp_path)
-    assert "fake:model" in _sidebar_text(at)
+    outside = " ".join(text for _, text in _layout(at))
+    assert "fake:model" not in outside and "Modelo" not in outside
+    panel = list(at.sidebar.expander[0].children.values())
+    assert "Modelo: `fake:model`" in panel[0].value  # the first line of the panel
+
+    model = ScriptedChatModel(script=[AIMessage(content="Oi!")])
+    at = _app(model, db_path, policy, tmp_path)
+    at.chat_input[0].set_value("Oi").run()
+    assert "Modelo: `fake:model`" in list(at.sidebar.expander[0].children.values())[0].value
 
 
 def test_example_buttons_send_the_question_as_if_typed(
@@ -260,3 +271,114 @@ def test_a_new_conversation_clears_the_panel(db_path: Path, policy: str, tmp_pat
     labels = [b.label for b in at.sidebar.button]
     at.sidebar.button[labels.index("Nova conversa")].click().run()
     assert "list_active_promotions" not in _sidebar_text(at)
+
+
+# --- sidebar layout and wording -----------------------------------------------------------------
+
+
+def _flatten(children: dict[int, Any]) -> list[tuple[str, str]]:
+    """(kind, label or text) pairs, going into plain containers but not into expanders."""
+    items: list[tuple[str, str]] = []
+    for element in children.values():
+        if element.type in {"container", "flex_container"}:
+            items += _flatten(element.children)
+            continue
+        items.append(
+            (element.type, getattr(element, "label", None) or getattr(element, "value", "") or "")
+        )
+    return items
+
+
+def _layout(at: AppTest) -> list[tuple[str, str]]:
+    """The sidebar from top to bottom."""
+    return _flatten(at.sidebar.children)
+
+
+def test_the_sidebar_follows_the_agreed_order_and_wording(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """Only customer content: examples, a divider, new conversation, a divider, the agent panel."""
+    at = _app(ScriptedChatModel(script=[]), db_path, policy, tmp_path)
+    assert _layout(at) == [
+        ("markdown", "**Não sabe por onde começar? Experimente uma destas perguntas:**"),
+        *[("button", question) for question in EXAMPLES],
+        ("divider", "---"),
+        ("markdown", "**Gostaria de iniciar uma nova conversa?**"),
+        ("button", "Nova conversa"),
+        ("caption", "O histórico atual será apagado."),
+        ("divider", "---"),
+        ("expander", "Por dentro do agente"),
+    ]
+
+
+def test_only_the_new_conversation_button_is_the_primary_one(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """Primary buttons take the theme color (green), so it marks only the destructive action."""
+    at = _app(ScriptedChatModel(script=[]), db_path, policy, tmp_path)
+    kinds = {b.label: b.proto.type for b in at.sidebar.button}
+    assert kinds["Nova conversa"] == "primary"
+    assert [label for label, kind in kinds.items() if kind == "primary"] == ["Nova conversa"]
+
+
+def test_the_theme_primary_color_is_green() -> None:
+    """The primary color is green: its green channel dominates the other two."""
+    config = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
+    color = config["theme"]["primaryColor"].lstrip("#")
+    red, green, blue = (int(color[i : i + 2], 16) for i in (0, 2, 4))
+    assert green > red and green > blue
+
+
+# --- the typing field -----------------------------------------------------------------------------
+
+
+def _css(at: AppTest) -> str:
+    """The <style> block the page injects (empty if there is none)."""
+    return "\n".join(m.value for m in at.markdown if "<style>" in m.value)
+
+
+def test_the_typing_box_has_a_green_rounded_border_a_focus_glow_and_a_white_background(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """CSS aimed at the chat input's data-testid; the green is the theme's primaryColor."""
+    at = _app(ScriptedChatModel(script=[]), db_path, policy, tmp_path)
+    css = _css(at)
+    green = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))[
+        "theme"
+    ]["primaryColor"]
+    assert '[data-testid="stChatInput"] > div' in css
+    assert f"border: 2px solid {green}" in css
+    assert "border-radius" in css
+    assert "background-color: #ffffff" in css
+    assert ":focus-within" in css and "box-shadow" in css  # the soft highlight on focus
+
+
+def test_the_typing_field_invites_a_question_with_two_examples(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """The placeholder shows what can be asked."""
+    at = _app(ScriptedChatModel(script=[]), db_path, policy, tmp_path)
+    assert at.chat_input[0].placeholder == (
+        "Digite sua dúvida aqui (ex.: preço do Yamaha C40 ou status do meu pedido)"
+    )
+
+
+def test_the_welcome_is_the_agreed_text_and_points_to_the_typing_box(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """A fixed UI text (not the prompt) that says what the assistant does and where to type."""
+    at = _app(ScriptedChatModel(script=[]), db_path, policy, tmp_path)
+    assert _texts(at)[0] == (
+        "Oi! Sou o assistente virtual da Empório da Música 🎸 Posso ajudar com produtos, pedidos, "
+        "trocas e dúvidas da loja. É só digitar aqui embaixo 👇"
+    )
+
+
+def test_streamlit_is_pinned_because_the_css_uses_its_internal_selectors() -> None:
+    """The CSS relies on Streamlit's internal markup, so the version is pinned and matches."""
+    from importlib.metadata import version
+
+    lines = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    pins = [line for line in lines if line.strip().startswith("streamlit")]
+    assert len(pins) == 1 and "==" in pins[0], pins
+    assert pins[0].split("==")[1].split()[0] == version("streamlit")
