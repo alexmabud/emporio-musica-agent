@@ -402,3 +402,25 @@ def test_the_category_enum_matches_the_store_categories_and_rejects_invented_one
     assert {category.value for category in Category} == stored
     with pytest.raises(ValidationError):
         call("search_products", category="Saxofones")
+
+
+def test_the_escalation_tool_description_lists_every_reason_to_use_it(tmp_path: Path) -> None:
+    """The model reads it: complaints, managers, policy doubts, a person, data deletion."""
+    tools = {tool.name: tool for tool in build_tools(tmp_path / "x.db", tmp_path / "e.jsonl")}
+    text = tools["escalate_to_human"].description.lower()
+    for reason in ("complaint", "manager", "doubt", "talk to a person", "deletion"):
+        assert reason in text
+
+
+def test_the_escalation_fields_ask_for_neutral_facts_only(tmp_path: Path) -> None:
+    """The record the team reads must not carry a verdict the manager has not made."""
+    tools = {tool.name: tool for tool in build_tools(tmp_path / "x.db", tmp_path / "e.jsonl")}
+    fields = tools["escalate_to_human"].args_schema.model_fields  # type: ignore[union-attr]
+    summary = (fields["summary"].description or "").lower()
+    assert "facts only" in summary and "no verdict" in summary
+    assert "out of the deadline" in summary  # the forbidden example is named
+    assert "receipt date not given" in summary
+    reason = (fields["reason"].description or "").lower()
+    for code in ("complaint", "manager_required", "policy_doubt", "human_requested"):
+        assert code in reason
+    assert "data_deletion" in reason

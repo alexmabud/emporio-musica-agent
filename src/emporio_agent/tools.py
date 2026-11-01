@@ -81,8 +81,20 @@ class PaymentOptionsArgs(BaseModel):
 class EscalationArgs(BaseModel):
     """Arguments of ``escalate_to_human``."""
 
-    reason: str = Field(description="Short reason, e.g. complaint or manager_required.")
-    summary: str = Field(description="What happened, with the order number if there is one.")
+    reason: str = Field(
+        description=(
+            "Short code: complaint, manager_required, policy_doubt, human_requested or "
+            "data_deletion."
+        )
+    )
+    summary: str = Field(
+        description=(
+            "Facts only, neutral: what the customer said and asked, with the order number if "
+            "there is one. No verdict or judgement the manager has not made (never write "
+            "'out of the deadline'); name what is unknown, e.g. 'customer bought 8 days ago, "
+            "box closed, wants to exchange; receipt date not given'."
+        )
+    )
 
 
 class NoArgs(BaseModel):
@@ -166,8 +178,11 @@ def build_tools(
             name="escalate_to_human",
             description=(
                 "Hand the case to a person: complaints, anything the policy says needs a manager, "
-                "or a question you cannot answer from the policy. Registers it and returns the "
-                "response window to tell the customer. Do not use it for questions you can answer."
+                "a real doubt about how a policy applies to the customer's own case, a customer "
+                "who asks to talk to a person, or a personal-data deletion request (you cannot "
+                "delete data: record it for the team). Registers it and returns the response "
+                "window to tell the customer. Write the summary as neutral facts, never as a "
+                "verdict. Do not use it for questions you can answer."
             ),
             args_schema=EscalationArgs,
         ),

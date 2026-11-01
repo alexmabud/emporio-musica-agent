@@ -187,3 +187,66 @@ with uniform keys per category.
   "ungrounded": [...], ...}` with the attempt counters. It holds the unverified values only, never the
   customer's text, so it carries no personal data. Approved replies log nothing. Without a logging setup
   the lines go to stderr, which is enough to audit a development session.
+
+## "I don't know" and off-topic rule (prompt)
+
+- **Principle.** The agent answers only from what the tools returned and what the manual says.
+- **Off-topic** (not about the store): short, kind refusal that does not answer the content, a line on what
+  it can do (products, prices, stock, orders, returns, payment, hours) and a closing invitation: "quer que eu
+  te mostre as promoções de agora?". No tool call and no promotion listed at that point, so the grounding
+  check has nothing to verify. If the customer accepts, the next turn calls `list_active_promotions`.
+- **Store topic without data** (for example parking or guitar lessons, which the manual never mentions):
+  say plainly that there is no information, **without affirming or denying**, never deduce or invent, and
+  offer the WhatsApp number or an attendant. `escalate_to_human` is called only when the customer accepts,
+  so no case is opened for a plain question.
+- **Partial information.** When the manual or the tools cover only part of the question, answer the covered
+  part quoting it and say clearly what is not known. Example found in the real run: "vocês fazem regulagem
+  de violão?". Policy 4.4 lists "ajustes sob encomenda (setup, regulagem especial)" among the items that
+  cannot be exchanged, so the manual *indicates* that custom adjustments exist. The first Groq answer, "não
+  oferecemos regulagem", was wrong, and "não tenho essa informação" alone is incomplete. The expected answer
+  quotes policy 4.4, says there is no price or lead time in the material and offers an attendant.
+- **Absence of information is not "we don't do it".** The agent never denies a service or product just
+  because there is no data about it. This is the rule behind both bullets above and is tested in the prompt.
+- **Change from slice 6.** The old rule escalated at once for "a doubt the manual does not cover". That was
+  too eager for a simple question; now only complaints, manager topics and policy-application doubts
+  escalate immediately.
+- **Policy application (manual section 10).** "In case of doubts about the *application* of any policy, the
+  attendant must consult management before giving information to the customer." The manual speaks of
+  *doubt*, not of every concrete case, so the line is drawn there:
+  - A concrete case **clearly covered** by the rule ("comprei há 3 dias, não abri, posso devolver?") is
+    answered straight from the manual, with no tool. A general question about a rule ("qual o prazo de
+    devolução?") too.
+  - A **borderline or ambiguous** case is escalated with `escalate_to_human` **before any verdict**, and the
+    customer is told the manager confirms. Examples: at the limit or just after a deadline ("comprei há 8
+    dias": the 7 days of policy 4.1 count from *receipt*, which the customer did not say), opened
+    packaging, defect versus misuse, an item that may not be exchangeable (policy 4.4), or not enough
+    information to decide.
+  - The line between the two is a judgment of the model, so it is checked in the eval (scenarios 13 and 14).
+  - **No verdict means no verdict.** In a borderline case the agent does not mention the deadline nor say the
+    customer is inside or outside it. The 7 days of policy 4.1 count from *receipt* and the customer spoke
+    of the *purchase*, so any statement would rest on wrong data. The first real run broke this ("como já se
+    passaram 8 dias…") and also wrote "troca fora do prazo" in the escalation record.
+  - **The escalation record is neutral too.** `reason` is a short code (`complaint`, `manager_required`,
+    `policy_doubt`, `human_requested`, `data_deletion`) and `summary` holds facts only, naming what is
+    unknown ("cliente comprou há 8 dias, caixa fechada, quer trocar; data de recebimento não informada").
+    The manager decides; the record must not prejudge. The field descriptions and the prompt example say so.
+- **Two escalations that are NOT in the manual** (decisions of this project, so a reader can find them):
+  - *The customer asks to talk to a person*: `escalate_to_human` right away. The manual gives no channel
+    for "I want a human" inside the chat, and refusing would be worse than registering the case.
+  - *Request to delete personal data* (manual section 9 says the customer may ask for deletion by WhatsApp
+    or e-mail): the agent has no tool to delete anything and must not claim to. It records the request
+    with `escalate_to_human` and says the team will handle it. Identity is not verified in the chat for
+    this; the team does it when they get back to the customer.
+- **Eval scenarios** 10 to 18 in CLAUDE.md section 7 check this behavior (trajectory: no tool, no tool,
+  `list_active_promotions`, `escalate_to_human`, no tool, `escalate_to_human`, `escalate_to_human`, no
+  tool, no tool). Scenario 18 ("vocês fazem setup na minha guitarra?") checks that the partial-information
+  rule generalizes: the prompt example is about "regulagem de violão" and 18 is deliberately worded
+  differently. The runner itself is slice 8; these rows are its spec.
+- **Not yet validated with a real model.** The wording is tested for presence only; whether Gemini and Groq
+  follow it is what the slice 8 eval will show.
+
+## Tone (prompt)
+
+- **The manual is internal.** Section 10 calls it an internal document, so the prompt tells the agent to
+  say "nossas políticas" and never "manual" or "documento" to the customer (the instructions to the model
+  still say "manual"). A real answer had said "no nosso manual".

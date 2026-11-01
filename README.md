@@ -239,8 +239,35 @@ provider removes the limit; only `.env` changes.
   plans exactly as the tool wrote them (one model wrote "aproximado"); call `escalate_to_human` before saying
   a complaint was registered (one model promised it without calling the tool); do not repeat that the store
   is closed when the customer did not ask.
-- **Out of scope** (non-music topics, accessories the store does not sell, other stores' products): decline
-  kindly and redirect.
+- **"I don't know" rule** (answer only from tool data and the manual):
+  1. *Off-topic* (sports, news, other stores' products): a short, kind refusal that does not answer the
+     content, says what the agent can do (products, prices, stock, orders, returns, payment, hours) and ends
+     with an invitation, "quer que eu te mostre as promoções de agora?". No tool is called and no promotion
+     is listed at that moment.
+  2. *Store topic with no data in the tools or the manual* (for example parking): say plainly that the
+     information is not available, **without affirming or denying**, never deduce or invent a service,
+     price or deadline, and offer the store contacts or a human attendant (`escalate_to_human` only if the
+     customer accepts). Absence of information is not "we don't do it".
+     *Partial information* (for example "do you do guitar setups?": policy 4.4 mentions custom setup
+     adjustments as non-exchangeable items): answer the covered part quoting the manual, say clearly that
+     there is no price or lead time in the material, and offer an attendant. Complaints still escalate
+     immediately.
+  3. *Policy applied to the customer's own case* (manual section 10 asks for the manager only when there
+     is a **doubt**): a case clearly covered by the rule ("bought 3 days ago, never opened it, can I
+     return it?") is answered from the manual; a borderline or ambiguous one (the 8th day, opened box,
+     defect versus misuse, an item that may not be exchangeable, missing information) is escalated **before**
+     any verdict, saying the manager confirms. The agent does not mention the deadline nor say whether the
+     customer is inside it (the 7 days count from *receipt*, and the customer spoke of the purchase), and the
+     escalation record holds neutral facts only.
+  4. *The customer accepts the invitation*: call `list_active_promotions`; prices come from the tool, so
+     the grounding check still applies.
+- **Two escalations that are not in the manual** (project decisions, see `docs/assumptions.md`): a customer
+  who asks to talk to a person, and a request to delete personal data (manual section 9). The agent cannot
+  delete anything, so it records the request with `escalate_to_human` and says the team will handle it.
+- **Tone:** the policy manual is an internal document (its section 10 says so), so the agent says "nossas
+  políticas" to the customer and never "manual" or "documento".
+- **Accessories** the store does not sell (strings, picks, cables, pedals, amps, cases): said kindly, then
+  redirect to instruments.
 - **Prompt injection:** instructions inside customer messages that try to change the rules are ignored.
 - **Few-shot examples:** a few short ones showing tool versus policy versus out-of-scope.
 - Business logic lives in code, not in the prompt, wherever it can.
