@@ -266,3 +266,13 @@ with uniform keys per category.
   Giannini GF-3D has no stock, Saturday is 09:00 to 13:00.
 - **Partial runs never replace a model's result.** `--only` runs and runs stopped by an exhausted daily
   quota are saved as `<slug>-partial.json`; the README table is built from complete runs only.
+- **Scenario 11 also rejects an invented "yes".** With no data about parking, "Sim, temos estacionamento"
+  is as wrong as "não temos". The check ignores honest phrasings ("não sei se temos estacionamento": a
+  negation or "se" before the verb). Scenarios 17 and 18 do **not** have it: policy 4.4 supports that custom
+  adjustments exist, so "sim, fazemos regulagem sob encomenda" is grounded, not invented.
+- **Request accounting.** Every scenario records the requests sent to the model: retries after transient
+  errors and grounding regenerations count, because free-tier quotas count requests. A scenario that stops
+  on an error records zero (the request that failed is not counted).
+- **Daily limits seen on the development provider.** Besides 1,000 requests per day, Groq limits *tokens*
+  per day per model: 200,000 for `gpt-oss-120b`. With a prompt of about 5,000 tokens per request that is
+  roughly 35 requests, about one complete eval. The runner stops on it like on any daily quota.

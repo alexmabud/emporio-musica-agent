@@ -8,6 +8,7 @@ critical checks hold; desirable checks are counted apart. Results go to
 
 import argparse
 import json
+import logging
 import os
 import tempfile
 import time
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 
 from emporio_agent.agent import build_agent, create_model, is_daily_quota_error, reply_text
@@ -47,6 +49,44 @@ class CheckResult:
     level: Level
     passed: bool
     error: str | None = None
+
+
+class CallCounter(BaseCallbackHandler):
+    """Counts every request sent to the chat model, retries and regenerations included.
+
+    Attributes:
+        started: Requests sent.
+        failed: Requests that raised an error.
+    """
+
+    def __init__(self) -> None:
+        """Start with no requests counted."""
+        self.started = 0
+        self.failed = 0
+
+    def on_chat_model_start(self, serialized: dict[str, Any], messages: Any, **kwargs: Any) -> None:
+        """Count one request."""
+        self.started += 1
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        """Count one failed request."""
+        self.failed += 1
+
+
+class _GroundingEvents(logging.Handler):
+    """Collects the grounding check's failure records (JSON lines) during a scenario."""
+
+    def __init__(self) -> None:
+        """Start with no events."""
+        super().__init__(level=logging.WARNING)
+        self.events: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Keep the event name of the record."""
+        try:
+            self.events.append(json.loads(record.getMessage())["event"])
+        except (ValueError, KeyError):
+            pass
 
 
 def model_slug(spec: str) -> str:
@@ -90,28 +130,42 @@ def run_scenario(agent_factory: AgentFactory, scenario: Scenario, workdir: Path)
         workdir: Folder for the scenario's escalation log.
 
     Returns:
-        What the agent did on each turn, plus the escalation records it wrote.
+        What the agent did on each turn, the escalation records it wrote and how many requests
+        it sent to the model.
     """
     escalations_path = workdir / f"escalations-{scenario.id}.jsonl"
     agent = agent_factory(escalations_path)
-    config = {"configurable": {"thread_id": f"eval-{scenario.id}"}}
+    counter, grounding = CallCounter(), _GroundingEvents()
+    config = {"configurable": {"thread_id": f"eval-{scenario.id}"}, "callbacks": [counter]}
+    logger = logging.getLogger("emporio_agent.validation")
+    logger.addHandler(grounding)
     turns = []
-    for message in scenario.messages:
-        started = time.perf_counter()
-        result = agent.invoke({"messages": [("user", message)]}, config=config)
-        turns.append(
-            TurnResult(
-                user=message,
-                reply=reply_text(result),
-                tools=_tools_called_in_turn(result["messages"]),
-                latency_s=round(time.perf_counter() - started, 1),
+    try:
+        for message in scenario.messages:
+            started = time.perf_counter()
+            result = agent.invoke({"messages": [("user", message)]}, config=config)
+            turns.append(
+                TurnResult(
+                    user=message,
+                    reply=reply_text(result),
+                    tools=_tools_called_in_turn(result["messages"]),
+                    latency_s=round(time.perf_counter() - started, 1),
+                )
             )
-        )
+    finally:
+        logger.removeHandler(grounding)
     records: tuple[dict[str, Any], ...] = ()
     if escalations_path.exists():
         lines = escalations_path.read_text(encoding="utf-8").splitlines()
         records = tuple(json.loads(line) for line in lines if line.strip())
-    return Run(turns=tuple(turns), escalations=records)
+    return Run(
+        turns=tuple(turns),
+        escalations=records,
+        model_calls=counter.started,
+        failed_calls=counter.failed,
+        grounding_retries=grounding.events.count("grounding_retry"),
+        safe_messages=grounding.events.count("grounding_safe_message"),
+    )
 
 
 def _scenario_record(
@@ -127,6 +181,10 @@ def _scenario_record(
         ]
         record["escalations"] = list(run.escalations)
         record["latency_s"] = round(sum(t.latency_s for t in run.turns), 1)
+        record["model_calls"] = run.model_calls
+        record["failed_calls"] = run.failed_calls
+        record["grounding_retries"] = run.grounding_retries
+        record["safe_messages"] = run.safe_messages
         record["checks"] = [
             {"name": r.name, "level": r.level, "passed": r.passed}
             | ({"error": r.error} if r.error else {})
@@ -144,6 +202,10 @@ def _totals(records: list[dict[str, Any]]) -> dict[str, int]:
     return {
         "scenarios_run": len(records),
         "scenarios_passed": sum(1 for record in records if record["passed"]),
+        "model_calls": sum(record.get("model_calls", 0) for record in records),
+        "failed_calls": sum(record.get("failed_calls", 0) for record in records),
+        "grounding_retries": sum(record.get("grounding_retries", 0) for record in records),
+        "safe_messages": sum(record.get("safe_messages", 0) for record in records),
         "desirable_passed": sum(1 for c in desirable if c["passed"]),
         "desirable_total": len(desirable),
     }
@@ -151,7 +213,7 @@ def _totals(records: list[dict[str, Any]]) -> dict[str, int]:
 
 def format_table(records: list[dict[str, Any]]) -> str:
     """A plain-text pass/fail table, followed by every check that failed."""
-    lines = [f"{'id':<4} {'result':<7} {'desirable':<10} {'secs':>6}  scenario"]
+    lines = [f"{'id':<4} {'result':<7} {'desirable':<10} {'calls':>5} {'secs':>7}  scenario"]
     failures = []
     for record in records:
         checks = record["checks"]
@@ -159,9 +221,16 @@ def format_table(records: list[dict[str, Any]]) -> str:
         done = sum(1 for c in desirable if c["passed"])
         result = "PASS" if record["passed"] else "FAIL"
         latency = record.get("latency_s", 0.0)
+        calls = record.get("model_calls", 0)
+        if record.get("grounding_retries") or record.get("safe_messages"):
+            note = (
+                f" (grounding: {record['grounding_retries']} retry, {record['safe_messages']} safe)"
+            )
+        else:
+            note = ""
         lines.append(
-            f"{record['id']:<4} {result:<7} {f'{done}/{len(desirable)}':<10} {latency:>6}  "
-            f"{record['title']}"
+            f"{record['id']:<4} {result:<7} {f'{done}/{len(desirable)}':<10} {calls:>5} "
+            f"{latency:>7}  {record['title']}{note}"
         )
         if "error" in record:
             failures.append(f"  {record['id']}: ERROR {record['error']}")
@@ -285,7 +354,8 @@ def main(
     summary = (
         f"`{model_spec}` · {stamp} · critical {totals['scenarios_passed']}/"
         f"{totals['scenarios_run']} scenarios passed · desirable "
-        f"{totals['desirable_passed']}/{totals['desirable_total']} checks"
+        f"{totals['desirable_passed']}/{totals['desirable_total']} checks · "
+        f"{totals['model_calls']} model calls"
     )
     document = {
         "model": model_spec,

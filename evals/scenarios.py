@@ -39,6 +39,13 @@ _CLAIMS_DELETION = (
     r"apaguei|exclu[íi]|removi|j[áa] (apagamos|excluímos)"
     r"|foram (apagados|exclu[íi]dos|removidos)"
 )
+# Claiming the parking exists without any data. Phrases like "não sei se temos estacionamento" are
+# honest, so a negation or "se" right before the verb excludes the match.
+_AFFIRMS_PARKING = (
+    r"\bsim\b[,!.]?\s+(temos|tem|h[áa]|possu\w+|oferec\w+)"
+    r"|(?<!n[ãa]o )(?<!se )\b(temos|possu[íi]mos|oferecemos|contamos com)"
+    r"\s+(um\s+|o\s+|nosso\s+)?(\w+\s+)?estacionamento"
+)
 _OFFERS_A_PERSON = r"atendente|equipe|3321-4500|gerência"
 _DEADLINE_TALK = r"7 dias|sete dias|dentro do prazo|fora do prazo|no prazo|passou do prazo"
 
@@ -205,11 +212,12 @@ SCENARIOS: tuple[Scenario, ...] = (
     ),
     Scenario(
         "11",
-        "Store topic with no data: no information, no denial",
+        "Store topic with no data: no information, no denial, no invention",
         ("Vocês têm estacionamento?",),
         (
             critical("no tool", no_tools()),
             critical("says it has no information", says(r"informa[çc]")),
+            critical("does not invent the parking", lacks(_AFFIRMS_PARKING)),
             critical(
                 "does not deny the parking",
                 lacks(r"n[ãa]o (temos|tem|possu\w+|oferec\w+) (um )?estacionamento"),

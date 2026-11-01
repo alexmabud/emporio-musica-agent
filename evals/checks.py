@@ -38,10 +38,19 @@ class Run:
     Attributes:
         turns: One result per customer message, in order.
         escalations: Records appended to the escalation log during the scenario.
+        model_calls: Requests sent to the model (retries and regenerations included): what a
+            free-tier daily request quota counts.
+        failed_calls: How many of those requests raised an error (and were retried or not).
+        grounding_retries: Replies regenerated because they stated an unverified value.
+        safe_messages: Replies replaced by the safe message after the retries ran out.
     """
 
     turns: tuple[TurnResult, ...]
     escalations: tuple[dict[str, Any], ...] = ()
+    model_calls: int = 0
+    failed_calls: int = 0
+    grounding_retries: int = 0
+    safe_messages: int = 0
 
     @property
     def reply(self) -> str:

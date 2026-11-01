@@ -249,6 +249,10 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
   e.g. in #17/#18 denying the service or not offering an attendant). *Desirable* checks are reported apart
   (a better answer, e.g. citing that custom adjustments exist and are not exchangeable). The README table
   shows both: critical verdict and desirable passed/total, per model.
+- **Request accounting.** Each scenario records the requests it sent to the model (retries after errors and
+  grounding regenerations included), the failed ones, the grounding retries and safe-message fallbacks, and
+  the run saves the total. This is what a free-tier daily quota counts, so it says whether a complete eval
+  fits in one day.
 - `--only 8,17` runs a subset and `--results-dir` changes where results go. A subset or a run stopped by an
   exhausted daily quota is saved as `<slug>-partial.json` and never replaces the model's full result; the
   report ignores partial files. `make eval-report` prints the README table from the full results.
