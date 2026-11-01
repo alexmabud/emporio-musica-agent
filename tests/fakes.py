@@ -13,7 +13,7 @@ from pydantic import Field
 class ScriptedChatModel(BaseChatModel):
     """A chat model that answers with a fixed script and records what it was shown.
 
-    Each call pops the next item of ``script``: an ``AIMessage`` is returned, an error is raised.
+    Each call pops the next item of ``script``: an ``AIMessage`` is returned, an exception raised.
 
     Attributes:
         script: Replies (or errors) to give, in order.
@@ -40,7 +40,7 @@ class ScriptedChatModel(BaseChatModel):
     ) -> ChatResult:
         self.seen.append(list(messages))
         item = self.script.pop(0)
-        if isinstance(item, Exception):
+        if isinstance(item, BaseException):
             raise item
         return ChatResult(generations=[ChatGeneration(message=item)])
 

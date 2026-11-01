@@ -18,7 +18,7 @@ test:
 	$(PY) -m pytest
 
 eval:
-	$(PY) -m evals.run
+	$(PY) -m evals.run $(ARGS)
 
 eval-report:
 	$(PY) -m evals.report

@@ -43,6 +43,8 @@ class Run:
         failed_calls: How many of those requests raised an error (and were retried or not).
         grounding_retries: Replies regenerated because they stated an unverified value.
         safe_messages: Replies replaced by the safe message after the retries ran out.
+        transcript: The whole conversation as saved: user, assistant (with tool calls) and tool
+            messages, so a failure can be read afterwards.
     """
 
     turns: tuple[TurnResult, ...]
@@ -51,6 +53,7 @@ class Run:
     failed_calls: int = 0
     grounding_retries: int = 0
     safe_messages: int = 0
+    transcript: tuple[dict[str, Any], ...] = ()
 
     @property
     def reply(self) -> str:

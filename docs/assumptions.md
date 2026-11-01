@@ -276,3 +276,21 @@ with uniform keys per category.
 - **Daily limits seen on the development provider.** Besides 1,000 requests per day, Groq limits *tokens*
   per day per model: 200,000 for `gpt-oss-120b`. With a prompt of about 5,000 tokens per request that is
   roughly 35 requests, about one complete eval. The runner stops on it like on any daily quota.
+
+## Resuming the eval across days
+
+- **Why.** A complete eval needs about 32 model requests (1 per turn without a tool, 2 with one, plus
+  retries), more than the roughly 20 per day of the Gemini free tier and close to the 200,000 tokens per day
+  of the Groq model. The runner therefore saves progress after every scenario and resumes.
+- **Version lock.** Results from two different agents must never be merged into one table. The saved run
+  carries a fingerprint: the hash of the static system prompt (rules, examples and manual; the "Agora"
+  section with date, time and opening status is removed because it changes every minute), the hash of the
+  tool names, descriptions and argument schemas, and the model spec. `--resume` compares them and refuses
+  to continue when one differs, naming it. It does not hash the scenario checks; changing a scenario's
+  messages makes that scenario run again, but a changed check is the maintainer's responsibility.
+- **Frozen round.** While a round is in progress, the prompt and tool schemas are not edited. A critical
+  failure (invented value, order data leak, denying or affirming without a basis) stops the round for a
+  decision; a non-critical one (tone, incomplete citation, a desirable check) is only recorded.
+- **What counts as done.** A scenario that finished, passed or not, is done. A scenario that hit the daily
+  quota is not recorded and runs again on resume. A scenario that fails on another model error is recorded
+  as failed with the error.

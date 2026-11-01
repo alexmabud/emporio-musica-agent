@@ -237,7 +237,7 @@ def test_main_runs_the_chosen_scenarios_pauses_between_them_and_saves_the_result
     )
     assert code == 0 and pauses == [3.0]  # one pause between two scenarios, none after the last
 
-    saved = json.loads((tmp_path / "fake-model-partial.json").read_text(encoding="utf-8"))
+    saved = json.loads((tmp_path / "fake-model-subset.json").read_text(encoding="utf-8"))
     assert saved["model"] == "fake:model" and saved["partial"] is True
     assert saved["with_fallbacks"] is False
     assert [s["id"] for s in saved["scenarios"]] == ["9b", "14"]  # in the order of the spec
@@ -277,10 +277,11 @@ def test_an_exhausted_daily_quota_stops_the_run_and_keeps_what_was_measured(
         agent_factory=_factory(model, db_path, policy),
         sleep=lambda seconds: None,
     )
-    saved = json.loads((tmp_path / "fake-quota-partial.json").read_text(encoding="utf-8"))
+    saved = json.loads((tmp_path / "fake-quota-subset.json").read_text(encoding="utf-8"))
     assert code == 1 and saved["aborted"] is True
-    assert [s["id"] for s in saved["scenarios"]] == ["3", "5"]  # "14" never ran
-    assert saved["scenarios"][1]["passed"] is False and "error" in saved["scenarios"][1]
+    # "5" hit the quota and "14" never ran: neither is recorded as done
+    assert [s["id"] for s in saved["scenarios"]] == ["3"]
+    assert saved["remaining"] == ["5", "14"]
 
 
 def test_an_unknown_scenario_id_is_rejected_by_name(tmp_path: Path) -> None:
@@ -416,7 +417,7 @@ def test_the_saved_results_carry_the_calls_per_scenario_and_the_total(
         agent_factory=_factory(model, db_path, policy),
         sleep=lambda seconds: None,
     )
-    saved = json.loads((tmp_path / "fake-calls-partial.json").read_text(encoding="utf-8"))
+    saved = json.loads((tmp_path / "fake-calls-subset.json").read_text(encoding="utf-8"))
     assert [s["model_calls"] for s in saved["scenarios"]] == [1, 1]
     assert saved["totals"]["model_calls"] == 2 and saved["totals"]["failed_calls"] == 0
     assert "2 model calls" in saved["summary"]

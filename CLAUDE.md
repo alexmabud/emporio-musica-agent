@@ -253,9 +253,18 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
   grounding regenerations included), the failed ones, the grounding retries and safe-message fallbacks, and
   the run saves the total. This is what a free-tier daily quota counts, so it says whether a complete eval
   fits in one day.
-- `--only 8,17` runs a subset and `--results-dir` changes where results go. A subset or a run stopped by an
-  exhausted daily quota is saved as `<slug>-partial.json` and never replaces the model's full result; the
-  report ignores partial files. `make eval-report` prints the README table from the full results.
+- **Resume across days.** A complete eval may not fit one day of a free-tier quota (about 32 requests
+  against 20 per day on Gemini). Progress is saved after every scenario in `<slug>-partial.json`;
+  `--resume` runs only what is missing and, when all scenarios are done, the partial file becomes
+  `<slug>.json`. A **version lock** protects it: the partial run records a fingerprint (hash of the static
+  prompt, which ignores the date/time section, hash of the tool schemas, and the model) and `--resume`
+  refuses to continue if any of them changed, naming which one. `--restart` discards the partial run and
+  begins a new round; without either flag an existing partial run is never overwritten. A scenario that hit
+  the daily quota is not recorded as done. Each scenario also saves the full transcript (user, assistant with
+  tool calls and arguments, tool results). `make eval ARGS="--resume --pause 15"` passes the flags.
+- `--only 8,17` runs a subset and `--results-dir` changes where results go. A subset is saved as `<slug>-subset.json`
+  (it cannot be resumed) and never replaces the model's full result; the report ignores partial and subset
+  files. `make eval-report` prints the README table from the full results.
 - **Roles:** Groq is the development provider (prompt iteration, scenario by scenario). The Gemini Flash
   model is the reference: the final eval and the `examples/` transcripts run on it once, with a full
   daily quota. AI Studio billing is for emergencies only.

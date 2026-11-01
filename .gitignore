@@ -46,3 +46,4 @@ desafio_tecnico*.pdf
 
 # Partial eval runs (only complete runs are results worth keeping)
 evals/results/*-partial.json
+evals/results/*-subset.json

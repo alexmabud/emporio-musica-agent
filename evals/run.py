@@ -4,6 +4,11 @@ Each scenario runs on a fresh conversation. The run is scored on trajectory (too
 facts in the reply, on two levels (see ``evals.checks``): a scenario **passes** when all its
 critical checks hold; desirable checks are counted apart. Results go to
 ``evals/results/<model-slug>.json``.
+
+A complete eval may not fit one day of a free tier, so progress is saved after every scenario in
+``<model-slug>-partial.json`` and ``--resume`` continues it, as long as the prompt, the tool
+schemas and the model are exactly the same (``evals.version``). When every scenario is done the
+partial file becomes the model's full result.
 """
 
 import argparse
@@ -26,8 +31,10 @@ from emporio_agent.agent import build_agent, create_model, is_daily_quota_error,
 from emporio_agent.config import PROJECT_ROOT, ConfigError, Settings, load_settings
 from emporio_agent.data_loader import build_database
 from emporio_agent.policies import load_policy_text
+from emporio_agent.tools import build_tools
 from evals.checks import Check, Level, Run, TurnResult
 from evals.scenarios import SCENARIOS, Scenario
+from evals.version import compute_version, differences
 
 RESULTS_DIR = PROJECT_ROOT / "evals" / "results"
 
@@ -121,6 +128,27 @@ def _tools_called_in_turn(messages: list[Any]) -> tuple[str, ...]:
     )
 
 
+_ROLES = {"human": "user", "ai": "assistant", "tool": "tool"}
+
+
+def _transcript(messages: list[Any]) -> tuple[dict[str, Any], ...]:
+    """The conversation as plain data: user, assistant (with tool calls) and tool messages."""
+    items: list[dict[str, Any]] = []
+    for message in messages:
+        role = _ROLES.get(message.type)
+        if role is None:
+            continue
+        item: dict[str, Any] = {"role": role, "content": message.text}
+        if isinstance(message, AIMessage) and message.tool_calls:
+            item["tool_calls"] = [
+                {"name": c["name"], "args": c["args"]} for c in message.tool_calls
+            ]
+        if role == "tool":
+            item["name"] = message.name
+        items.append(item)
+    return tuple(items)
+
+
 def run_scenario(agent_factory: AgentFactory, scenario: Scenario, workdir: Path) -> Run:
     """Play a scenario on a fresh agent and conversation.
 
@@ -130,8 +158,8 @@ def run_scenario(agent_factory: AgentFactory, scenario: Scenario, workdir: Path)
         workdir: Folder for the scenario's escalation log.
 
     Returns:
-        What the agent did on each turn, the escalation records it wrote and how many requests
-        it sent to the model.
+        What the agent did on each turn, the escalation records it wrote, how many requests
+        it sent to the model and the full transcript.
     """
     escalations_path = workdir / f"escalations-{scenario.id}.jsonl"
     agent = agent_factory(escalations_path)
@@ -140,6 +168,7 @@ def run_scenario(agent_factory: AgentFactory, scenario: Scenario, workdir: Path)
     logger = logging.getLogger("emporio_agent.validation")
     logger.addHandler(grounding)
     turns = []
+    result: dict[str, Any] = {"messages": []}
     try:
         for message in scenario.messages:
             started = time.perf_counter()
@@ -165,15 +194,26 @@ def run_scenario(agent_factory: AgentFactory, scenario: Scenario, workdir: Path)
         failed_calls=counter.failed,
         grounding_retries=grounding.events.count("grounding_retry"),
         safe_messages=grounding.events.count("grounding_safe_message"),
+        transcript=_transcript(result["messages"]),
     )
 
 
 def _scenario_record(
-    scenario: Scenario, run: Run | None, results: list[CheckResult], error: str | None
+    scenario: Scenario,
+    run: Run | None,
+    results: list[CheckResult],
+    error: str | None,
+    stamp: str,
 ) -> dict[str, Any]:
     """The JSON-ready record of one scenario."""
     passed = error is None and all(r.passed for r in results if r.level == "critical")
-    record: dict[str, Any] = {"id": scenario.id, "title": scenario.title, "passed": passed}
+    record: dict[str, Any] = {
+        "id": scenario.id,
+        "title": scenario.title,
+        "messages": list(scenario.messages),
+        "date": stamp,
+        "passed": passed,
+    }
     if run is not None:
         record["turns"] = [
             {"user": t.user, "reply": t.reply, "tools": list(t.tools), "latency_s": t.latency_s}
@@ -190,6 +230,7 @@ def _scenario_record(
             | ({"error": r.error} if r.error else {})
             for r in results
         ]
+        record["transcript"] = list(run.transcript)
     if error is not None:
         record["error"] = error
         record["checks"] = []
@@ -222,12 +263,11 @@ def format_table(records: list[dict[str, Any]]) -> str:
         result = "PASS" if record["passed"] else "FAIL"
         latency = record.get("latency_s", 0.0)
         calls = record.get("model_calls", 0)
+        note = ""
         if record.get("grounding_retries") or record.get("safe_messages"):
             note = (
                 f" (grounding: {record['grounding_retries']} retry, {record['safe_messages']} safe)"
             )
-        else:
-            note = ""
         lines.append(
             f"{record['id']:<4} {result:<7} {f'{done}/{len(desirable)}':<10} {calls:>5} "
             f"{latency:>7}  {record['title']}{note}"
@@ -244,8 +284,13 @@ def format_table(records: list[dict[str, Any]]) -> str:
 
 def build_agent_factory(
     settings: Settings, model_spec: str, *, with_fallbacks: bool
-) -> AgentFactory:
-    """Build the real agent factory: the chosen model, the store data and the policies."""
+) -> tuple[AgentFactory, dict[str, str]]:
+    """Build the real agent factory and the version fingerprint of the agent it creates.
+
+    Returns:
+        The factory (chosen model, store data, policies) and the version (model, prompt and
+        tool schemas) that saved results are tied to.
+    """
     model = create_model(model_spec, settings.llm_temperature)
     fallbacks = [
         create_model(spec, settings.llm_temperature)
@@ -253,6 +298,9 @@ def build_agent_factory(
     ]
     build_database(settings.data_dir, settings.db_path)
     policy = load_policy_text(settings.policy_pdf)
+    version = compute_version(
+        policy, build_tools(settings.db_path, settings.escalations_path), model_spec
+    )
 
     def make(escalations_path: Path) -> Any:
         return build_agent(
@@ -264,7 +312,7 @@ def build_agent_factory(
             policy_text=policy,
         )
 
-    return make
+    return make, version
 
 
 def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -280,33 +328,92 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--pause", type=float, default=0.0, help="seconds to wait between scenarios (free tiers)"
     )
-    parser.add_argument("--only", help="comma-separated scenario ids, e.g. 8,17 (partial run)")
+    parser.add_argument("--only", help="comma-separated scenario ids, e.g. 8,17 (a quick subset)")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue the saved partial run (needs the same prompt, tool schemas and model)",
+    )
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="discard the saved partial run and begin a new round on the current version",
+    )
     parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.only and (args.resume or args.restart):
+        parser.error("--only runs a quick subset and cannot be combined with --resume/--restart")
+    if args.resume and args.restart:
+        parser.error("--resume and --restart contradict each other")
+    return args
+
+
+def _write_json(path: Path, document: dict[str, Any]) -> None:
+    """Write atomically, so a crash never leaves a half-written results file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    temporary.replace(path)
+
+
+def _load_progress(
+    partial_path: Path, args: argparse.Namespace, version: dict[str, str]
+) -> dict[str, Any] | None:
+    """The saved partial run to continue, or ``None`` to begin a new one.
+
+    Raises:
+        SystemExit: If a partial run exists and neither ``--resume`` nor ``--restart`` was given,
+            or if it was produced by a different prompt, tool schemas or model.
+    """
+    if not partial_path.exists() or args.restart:
+        return None
+    if not args.resume:
+        raise SystemExit(
+            f"A partial run is saved in {partial_path.name}. Pass --resume to continue it or "
+            "--restart to discard it and begin again."
+        )
+    saved = json.loads(partial_path.read_text(encoding="utf-8"))
+    changed = differences(saved.get("fingerprint", {}), version)
+    if changed:
+        raise SystemExit(
+            f"Cannot resume: the {', '.join(changed)} changed since {partial_path.name} was saved, "
+            "so its results do not describe the current agent. Use --restart to begin a new round "
+            "on the current version."
+        )
+    return saved
 
 
 def main(
     argv: Sequence[str] | None = None,
     *,
     agent_factory: AgentFactory | None = None,
+    version: dict[str, str] | None = None,
+    scenarios: Sequence[Scenario] | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
-    """Run the scenarios, print the table and save the results file.
+    """Run the scenarios, print the table and save the results.
 
     Args:
         argv: Command-line arguments (``sys.argv[1:]`` when omitted).
         agent_factory: Builds the agent per scenario; tests inject a scripted one.
+        version: Fingerprint of the agent (model, prompt, tool schemas); computed from the real
+            agent when omitted. Tests inject one.
+        scenarios: The scenarios to run (all of them by default); tests inject a few.
         sleep: Used for ``--pause``; tests inject a recorder.
 
     Returns:
         ``0`` when the run finished, ``1`` when it stopped early on an exhausted daily quota.
     """
     args = _parse(argv)
+    everything = tuple(SCENARIOS if scenarios is None else scenarios)
     wanted = [item.strip() for item in args.only.split(",")] if args.only else []
-    unknown = sorted(set(wanted) - {s.id for s in SCENARIOS})
+    unknown = sorted(set(wanted) - {s.id for s in everything})
     if unknown:
         raise SystemExit(f"Unknown scenario id(s): {', '.join(unknown)}")
-    scenarios = [s for s in SCENARIOS if not wanted or s.id in wanted]
+    subset = bool(wanted)
+    selected = [s for s in everything if not wanted or s.id in wanted]
 
     settings: Settings | None = None
     if agent_factory is None:
@@ -320,14 +427,53 @@ def main(
         raise SystemExit("--model is required when no agent is injected")
     if agent_factory is None:
         assert settings is not None
-        agent_factory = build_agent_factory(
+        agent_factory, version = build_agent_factory(
             settings, model_spec, with_fallbacks=args.with_fallbacks
         )
+    version = version or {"model": model_spec, "prompt_sha": "-", "tools_sha": "-"}
 
-    records: list[dict[str, Any]] = []
+    base = f"{model_slug(model_spec)}{'-with-fallbacks' if args.with_fallbacks else ''}"
+    full_path = args.results_dir / f"{base}.json"
+    partial_path = args.results_dir / f"{base}-partial.json"
+    subset_path = args.results_dir / f"{base}-subset.json"
+
+    saved = None if subset else _load_progress(partial_path, args, version)
+    texts = {s.id: list(s.messages) for s in selected}
+    kept = [r for r in (saved["scenarios"] if saved else []) if texts.get(r["id"]) == r["messages"]]
+    sessions: list[dict[str, Any]] = list(saved["sessions"]) if saved else []
+    records: list[dict[str, Any]] = list(kept)
+    order = {s.id: position for position, s in enumerate(everything)}
+    stamp = date.today().isoformat()
+
+    def document(*, partial: bool, aborted: bool) -> dict[str, Any]:
+        ordered = sorted(records, key=lambda r: order[r["id"]])
+        totals = _totals(ordered)
+        remaining = [s.id for s in selected if s.id not in {r["id"] for r in records}]
+        summary = (
+            f"`{model_spec}` · {stamp} · critical {totals['scenarios_passed']}/"
+            f"{totals['scenarios_run']} scenarios passed · desirable "
+            f"{totals['desirable_passed']}/{totals['desirable_total']} checks · "
+            f"{totals['model_calls']} model calls"
+        )
+        return {
+            "model": model_spec,
+            "date": stamp,
+            "fingerprint": version,
+            "with_fallbacks": args.with_fallbacks,
+            "partial": partial,
+            "aborted": aborted,
+            "remaining": remaining,
+            "summary": summary,
+            "totals": totals,
+            "sessions": sessions,
+            "scenarios": ordered,
+        }
+
+    todo = [s for s in selected if s.id not in {r["id"] for r in records}]
+    session: dict[str, Any] = {"date": stamp, "scenarios": [], "model_calls": 0, "failed_calls": 0}
     aborted = False
     with tempfile.TemporaryDirectory() as workdir:
-        for position, scenario in enumerate(scenarios):
+        for position, scenario in enumerate(todo):
             if position and args.pause > 0:
                 sleep(args.pause)
             run: Run | None = None
@@ -337,45 +483,49 @@ def main(
                 run = run_scenario(agent_factory, scenario, Path(workdir))
                 results = evaluate(run, scenario.checks)
             except Exception as failure:
+                if is_daily_quota_error(failure):
+                    aborted = True
+                    print(
+                        f"[{position + 1}/{len(todo)}] {scenario.id} NOT DONE: daily quota",
+                        flush=True,
+                    )
+                    break
                 error = f"{type(failure).__name__}: {failure}"
-                aborted = is_daily_quota_error(failure)
-            records.append(_scenario_record(scenario, run, results, error))
+            record = _scenario_record(scenario, run, results, error, stamp)
+            records.append(record)
+            session["scenarios"].append(scenario.id)
+            session["model_calls"] += record.get("model_calls", 0)
+            session["failed_calls"] += record.get("failed_calls", 0)
             print(
-                f"[{position + 1}/{len(scenarios)}] {scenario.id} "
-                f"{'PASS' if records[-1]['passed'] else 'FAIL'}",
+                f"[{position + 1}/{len(todo)}] {scenario.id} "
+                f"{'PASS' if record['passed'] else 'FAIL'}",
                 flush=True,
             )
-            if aborted:
-                break
+            if not subset:
+                _write_json(partial_path, document(partial=True, aborted=False))
 
-    totals = _totals(records)
-    partial = len(scenarios) != len(SCENARIOS) or aborted
-    stamp = date.today().isoformat()
-    summary = (
-        f"`{model_spec}` · {stamp} · critical {totals['scenarios_passed']}/"
-        f"{totals['scenarios_run']} scenarios passed · desirable "
-        f"{totals['desirable_passed']}/{totals['desirable_total']} checks · "
-        f"{totals['model_calls']} model calls"
-    )
-    document = {
-        "model": model_spec,
-        "date": stamp,
-        "with_fallbacks": args.with_fallbacks,
-        "partial": partial,
-        "aborted": aborted,
-        "summary": summary,
-        "totals": totals,
-        "scenarios": records,
-    }
-    suffix = ("-with-fallbacks" if args.with_fallbacks else "") + ("-partial" if partial else "")
-    target = args.results_dir / f"{model_slug(model_spec)}{suffix}.json"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if session["scenarios"]:
+        sessions.append(session)
+    unfinished = any(s.id not in {r["id"] for r in records} for s in selected)
+    final = document(partial=subset or unfinished, aborted=aborted)
+    if subset:
+        target = subset_path
+    elif not final["remaining"]:
+        target = full_path
+        partial_path.unlink(missing_ok=True)
+    else:
+        target = partial_path
+    if records:
+        _write_json(target, final)
 
-    print("\n" + format_table(records))
-    print(f"\n{summary}\nSaved to {target}")
+    print("\n" + format_table(final["scenarios"]))
+    print(f"\n{final['summary']}")
+    if records:
+        print(f"Saved to {target}")
+    if final["remaining"] and not subset:
+        print(f"Remaining ({len(final['remaining'])}): {', '.join(final['remaining'])}")
     if aborted:
-        print("Stopped early: the daily quota of the model is used up.")
+        print("Stopped early: the daily quota of the model is used up. Run again with --resume.")
     return 1 if aborted else 0
 
 
