@@ -245,6 +245,13 @@ no PIX discount on a promo item). Report a pass/fail table; include the latest r
   model, date, per-scenario trajectory (tools called), key-fact checks, pass/fail and latency, plus a
   one-line markdown summary. The README comparison table is built from these files.
 - Configurable pause between scenarios (`--pause SECONDS`) for the free-tier limits.
+- **Two levels of criteria per scenario.** *Critical* checks decide pass/fail (a wrong or unsafe behavior,
+  e.g. in #17/#18 denying the service or not offering an attendant). *Desirable* checks are reported apart
+  (a better answer, e.g. citing that custom adjustments exist and are not exchangeable). The README table
+  shows both: critical verdict and desirable passed/total, per model.
+- `--only 8,17` runs a subset and `--results-dir` changes where results go. A subset or a run stopped by an
+  exhausted daily quota is saved as `<slug>-partial.json` and never replaces the model's full result; the
+  report ignores partial files. `make eval-report` prints the README table from the full results.
 - **Roles:** Groq is the development provider (prompt iteration, scenario by scenario). The Gemini Flash
   model is the reference: the final eval and the `examples/` transcripts run on it once, with a full
   daily quota. AI Studio billing is for emergencies only.

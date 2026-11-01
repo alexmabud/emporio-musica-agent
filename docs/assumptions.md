@@ -250,3 +250,19 @@ with uniform keys per category.
 - **The manual is internal.** Section 10 calls it an internal document, so the prompt tells the agent to
   say "nossas políticas" and never "manual" or "documento" to the customer (the instructions to the model
   still say "manual"). A real answer had said "no nosso manual".
+
+## Eval design (slice 8)
+
+- **Two levels of criteria.** Critical checks decide a scenario's pass/fail; desirable checks are reported
+  apart. This keeps a safe but incomplete answer (scenarios 17 and 18 on the development model) from
+  looking like a failure, while still showing it is not the best answer.
+- **Checks are regular expressions over Portuguese text**, so they are deliberately loose on wording and
+  strict on facts (a price, a denial, a tool). They can still mislabel a reply; the saved results keep every
+  reply so a failure can be read, not just counted. A check that crashes counts as failed.
+- **Scenario 9 is two scenarios (9a hours, 9b address) and 10 has a prompt-injection variant (10b).**
+  Scenario 4 is two turns (the order number, then the e-mail of the customer who owns order 8).
+- **Real data in the checks.** Expected values come from the store data: the Ohana CK-20 is on a 20%
+  promotion (R$ 439,20; a stacked PIX would be R$ 417,24), order 8 has tracking code BRJL5544332BR, the
+  Giannini GF-3D has no stock, Saturday is 09:00 to 13:00.
+- **Partial runs never replace a model's result.** `--only` runs and runs stopped by an exhausted daily
+  quota are saved as `<slug>-partial.json`; the README table is built from complete runs only.

@@ -7,9 +7,8 @@ from collections.abc import Callable
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
 
-from emporio_agent.agent import build_agent, is_daily_quota_error, reply_text
+from emporio_agent.agent import build_agent, create_model, is_daily_quota_error, reply_text
 from emporio_agent.config import ConfigError, load_settings
 from emporio_agent.data_loader import build_database
 from emporio_agent.policies import load_policy_text
@@ -20,7 +19,6 @@ _BANNER = (
     "Digite 'sair' para encerrar ou '/novo' para recomeçar a conversa."
 )
 _FAREWELL = "Até logo! 🎸"
-_MODEL_TIMEOUT_SECONDS = 60
 
 
 def _failure_message(error: Exception) -> str:
@@ -84,18 +82,11 @@ def main() -> None:
         sys.exit(f"Erro de configuração: {error}")
     build_database(settings.data_dir, settings.db_path)
 
-    # Retries are the agent's job (visible and tested), so the client's own are switched off.
-    def make_model(name: str) -> Any:
-        return init_chat_model(
-            name,
-            temperature=settings.llm_temperature,
-            max_retries=0,
-            timeout=_MODEL_TIMEOUT_SECONDS,
-        )
-
     agent = build_agent(
-        make_model(settings.llm_model),
-        fallback_models=[make_model(name) for name in settings.llm_fallback_models],
+        create_model(settings.llm_model, settings.llm_temperature),
+        fallback_models=[
+            create_model(name, settings.llm_temperature) for name in settings.llm_fallback_models
+        ],
         grounding_max_retries=settings.grounding_max_retries,
         db_path=settings.db_path,
         escalations_path=settings.escalations_path,

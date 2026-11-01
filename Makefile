@@ -1,7 +1,7 @@
 VENV ?= .venv
 PY := $(VENV)/bin/python
 
-.PHONY: install chat ui test eval lint format
+.PHONY: install chat ui test eval eval-report lint format
 
 install:
 	python3 -m venv $(VENV)
@@ -19,6 +19,9 @@ test:
 
 eval:
 	$(PY) -m evals.run
+
+eval-report:
+	$(PY) -m evals.report
 
 lint:
 	$(PY) -m ruff check .

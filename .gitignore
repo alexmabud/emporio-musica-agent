@@ -43,3 +43,6 @@ desafio_tecnico*.pdf
 .claude/scheduled_tasks.lock
 .claude/SKILLS_INTEGRATION_REPORT_CLAUDE.md
 .claude/worktrees/
+
+# Partial eval runs (only complete runs are results worth keeping)
+evals/results/*-partial.json

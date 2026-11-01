@@ -16,6 +16,7 @@ from langchain.agents.middleware import (
     before_model,
     dynamic_prompt,
 )
+from langchain.chat_models import init_chat_model
 from langchain_core.exceptions import ModelRateLimitError
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import RemoveMessage, trim_messages
@@ -42,10 +43,30 @@ MAX_HISTORY_MESSAGES = 40
 # Times a reply with unverified amounts is regenerated before the safe message is sent.
 GROUNDING_MAX_RETRIES = 1
 
+MODEL_TIMEOUT_SECONDS = 60
+
 APOLOGY = (
     "Estou com uma instabilidade para consultar o sistema agora. Pode tentar de novo em alguns "
     "instantes? Se preferir, fale com a nossa equipe pelo WhatsApp (67) 3321-4500."
 )
+
+
+def create_model(spec: str, temperature: float) -> BaseChatModel:
+    """Create a chat model from a ``provider:model`` spec (the provider is chosen only by it).
+
+    The client's own retries are switched off: retrying is the agent's job, in one visible and
+    tested place.
+
+    Args:
+        spec: Model in LangChain ``init_chat_model`` format, e.g. ``groq:openai/gpt-oss-120b``.
+        temperature: Sampling temperature.
+
+    Returns:
+        A chat model that supports tool calling.
+    """
+    return init_chat_model(
+        spec, temperature=temperature, max_retries=0, timeout=MODEL_TIMEOUT_SECONDS
+    )
 
 
 def is_daily_quota_error(error: Exception) -> bool:
