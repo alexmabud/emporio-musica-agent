@@ -1,0 +1,3 @@
+[client]
+# Hide the Deploy button and the developer menu: a demo shows only the chat.
+toolbarMode = "minimal"

@@ -118,6 +118,10 @@ sidebar:
   line per turn of the conversation. It uses what the agent already exposes. E-mails and phones are masked
   (`an***@coldmail.com`, `(67) 9****-7821`) before they reach the panel.
 - a spinner while the agent answers, and a **New conversation** button.
+- **System messages are warnings, not assistant speech.** A model failure (daily quota, invalid key) or a
+  configuration problem appears as a warning box outside the chat bubbles, so it is never mistaken for
+  something the assistant said. The terminal chat does the same: such lines have no "Atendente:" prefix.
+- `.streamlit/config.toml` sets the toolbar to minimal, which hides the Deploy button and the developer menu.
 
 To try another model without editing `.env` (for example on the development provider):
 

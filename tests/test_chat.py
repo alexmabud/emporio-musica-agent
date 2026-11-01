@@ -10,36 +10,38 @@ from langchain_google_genai.chat_models import GoogleRateLimitError
 import emporio_agent.chat as chat
 from emporio_agent.chat import (
     Escalation,
-    answer,
     app_settings,
     ask,
     build_agent_from_settings,
     failure_message,
     mask_pii,
     model_override,
+    startup_failure_message,
     summarize_args,
 )
-from emporio_agent.config import load_settings
+from emporio_agent.config import ConfigError, load_settings
 from emporio_agent.validation import SAFE_MESSAGE
 from tests.fakes import ScriptedChatModel, tool_call
 from tests.helpers import make_agent
 
 
-def test_answer_returns_the_agents_reply(db_path: Path, policy: str, tmp_path: Path) -> None:
+def test_ask_returns_the_agents_reply(db_path: Path, policy: str, tmp_path: Path) -> None:
     """One call: the customer's text in, the agent's final text out, on the given thread."""
     model = ScriptedChatModel(script=[AIMessage(content="Olá! Como posso ajudar?")])
-    agent = make_agent(model, db_path, policy, tmp_path)
-    assert answer(agent, "t1", "Oi") == "Olá! Como posso ajudar?"
+    turn = ask(make_agent(model, db_path, policy, tmp_path), "t1", "Oi")
+    assert turn.reply == "Olá! Como posso ajudar?" and turn.error is None
 
 
-def test_answer_turns_a_model_failure_into_a_message_for_the_customer(
+def test_a_model_failure_is_a_system_message_not_a_reply(
     db_path: Path, policy: str, tmp_path: Path
 ) -> None:
-    """No traceback reaches the customer: the daily quota says so and gives the WhatsApp number."""
+    """The daily quota is not something the assistant said: it travels apart, in `error`."""
     quota = GoogleRateLimitError("Generate content requests per day limit exceeded on Free Tier.")
     agent = make_agent(ScriptedChatModel(script=[quota]), db_path, policy, tmp_path)
-    reply = answer(agent, "t1", "Oi")
-    assert "limite diário" in reply and "(67) 3321-4500" in reply
+    turn = ask(agent, "t1", "Oi")
+    assert turn.reply == ""
+    assert turn.error is not None
+    assert "limite diário" in turn.error and "(67) 3321-4500" in turn.error
 
 
 def test_a_configuration_style_failure_names_the_error_type() -> None:
@@ -70,7 +72,7 @@ def test_the_agent_is_built_from_the_settings(
     agent = build_agent_from_settings(settings)
     assert created == ["fake:main", "fake:one", "fake:two"]
     assert (tmp_path / "store.db").exists()
-    assert answer(agent, "t1", "Oi") == "Pronto!"
+    assert ask(agent, "t1", "Oi").reply == "Pronto!"
 
 
 # --- what the "inside the agent" panel shows --------------------------------------------------
@@ -170,14 +172,22 @@ def test_ask_reports_a_grounding_retry_and_the_safe_message(
     assert turn.grounding == "safe_message" and turn.reply == SAFE_MESSAGE
 
 
-def test_ask_turns_a_model_failure_into_a_turn_without_grounding(
+def test_a_failed_turn_has_no_grounding_tools_or_reply(
     db_path: Path, policy: str, tmp_path: Path
 ) -> None:
-    """No reply was generated, so there is nothing to ground; the message is polite."""
+    """No reply was generated, so there is nothing to ground and no tool to list."""
     quota = GoogleRateLimitError("Generate content requests per day limit exceeded on Free Tier.")
     agent = make_agent(ScriptedChatModel(script=[quota]), db_path, policy, tmp_path)
     turn = ask(agent, "t1", "Oi")
-    assert turn.grounding is None and "limite diário" in turn.reply and turn.tools == ()
+    assert turn.grounding is None and turn.tools == () and turn.escalations == ()
+    assert turn.error and "limite diário" in turn.error
+
+
+def test_startup_failures_are_explained_without_a_stack_trace() -> None:
+    """A missing key or model at startup becomes a short, actionable message."""
+    assert "Erro de configuração" in startup_failure_message(ConfigError("LLM_MODEL is not set"))
+    other = startup_failure_message(ValueError("GROQ_API_KEY not set"))
+    assert "ValueError" in other and ".env" in other and "GROQ_API_KEY" not in other
 
 
 # --- the model the app uses ----------------------------------------------------------------------

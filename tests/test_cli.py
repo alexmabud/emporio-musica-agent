@@ -70,6 +70,7 @@ def test_a_model_failure_is_reported_and_the_chat_goes_on(
     printed = chat(make_agent(model, db_path, policy, tmp_path), ["Oi", "Oi de novo", "sair"])
     failure = [line for line in printed if "Não consegui falar com o modelo" in line]
     assert failure and "ClientError" in failure[0]
+    assert not failure[0].startswith("Atendente:")  # a system message, not the attendant talking
     assert "Atendente: Voltei!" in printed
 
 
@@ -84,4 +85,5 @@ def test_an_exhausted_daily_quota_gets_a_clear_message_with_the_whatsapp_number(
     printed = chat(make_agent(model, db_path, policy, tmp_path), ["Oi", "sair"])
     limit_lines = [line for line in printed if "limite diário" in line]
     assert limit_lines and "(67) 3321-4500" in limit_lines[0]
+    assert not limit_lines[0].startswith("Atendente:")
     assert not any("Confira a chave" in line for line in printed)

@@ -312,3 +312,8 @@ with uniform keys per category.
   `LLM_MODEL` and clears `LLM_FALLBACK_MODELS`; the argument wins over the variable.
 - **Not opened with a real model by the tests.** The UI is tested with Streamlit's own harness and a
   scripted model; no conversation with a real provider is part of the test suite.
+- **System messages are not assistant speech.** A model failure comes back in `Turn.error` (the reply is
+  empty) and the interfaces show it apart: a `st.warning` outside the chat bubbles in Streamlit, a line
+  without the "Atendente:" prefix in the terminal. Startup problems (missing model or key) are warnings too,
+  and name the error type but not its text, which could carry a key. The warning stays on screen in its
+  place in the conversation and is not remembered by the agent as something it said.

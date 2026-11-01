@@ -8,7 +8,7 @@ from typing import Any, Literal
 from langchain_core.messages import AIMessage
 
 from emporio_agent.agent import build_agent, create_model, is_daily_quota_error, reply_text
-from emporio_agent.config import Settings, load_settings
+from emporio_agent.config import ConfigError, Settings, load_settings
 from emporio_agent.data_loader import build_database
 from emporio_agent.policies import load_policy_text
 from emporio_agent.validation import GroundingEvents
@@ -62,19 +62,22 @@ class Turn:
     """One answer and what happened inside the agent to produce it.
 
     Attributes:
-        reply: What to show the customer.
+        reply: What the assistant said to the customer (empty when the model failed).
         tools: Tools called for this message, in order.
         grounding: ``approved`` (first draft accepted), ``retry`` (a draft was regenerated),
             ``safe_message`` (replaced by the safe message), or ``None`` if the model failed.
         retries: How many drafts the grounding check sent back.
         escalations: Cases registered for a person during this message.
+        error: A system message when the model failed (quota, key...): it is not something the
+            assistant said, so interfaces show it apart from the conversation.
     """
 
-    reply: str
+    reply: str = ""
     tools: tuple[ToolCall, ...] = ()
     grounding: Grounding | None = None
     retries: int = 0
     escalations: tuple[Escalation, ...] = ()
+    error: str | None = None
 
 
 def mask_pii(text: str) -> str:
@@ -95,6 +98,16 @@ def summarize_args(args: Mapping[str, Any], limit: int = 40) -> str:
             shown = shown[: limit - 1] + "…"
         parts.append(f"{key}={shown!r}" if isinstance(value, str) else f"{key}={shown}")
     return ", ".join(parts)
+
+
+def startup_failure_message(error: Exception) -> str:
+    """Explain why the agent could not start, without details that could expose a key."""
+    if isinstance(error, ConfigError):
+        return f"Erro de configuração: {error}"
+    return (
+        f"Não foi possível iniciar o atendimento ({type(error).__name__}). "
+        "Confira a chave e o modelo no .env e tente de novo."
+    )
 
 
 def failure_message(error: Exception) -> str:
@@ -119,8 +132,8 @@ def ask(agent: Any, thread_id: str, text: str) -> Turn:
         text: What the customer wrote.
 
     Returns:
-        The turn: the reply (or a polite failure message if the model fails), the tools called
-        with masked arguments, the grounding outcome and the cases registered for a person.
+        The turn: the reply, the tools called with masked arguments, the grounding outcome and
+        the cases registered for a person; if the model fails, only ``error`` is set.
     """
     with GroundingEvents() as grounding:
         try:
@@ -128,7 +141,7 @@ def ask(agent: Any, thread_id: str, text: str) -> Turn:
                 {"messages": [("user", text)]}, config={"configurable": {"thread_id": thread_id}}
             )
         except Exception as error:
-            return Turn(reply=failure_message(error))
+            return Turn(error=failure_message(error))
     messages = result["messages"]
     last_human = max(i for i, message in enumerate(messages) if message.type == "human")
     calls = [
@@ -157,11 +170,6 @@ def ask(agent: Any, thread_id: str, text: str) -> Turn:
             if call["name"] == "escalate_to_human"
         ),
     )
-
-
-def answer(agent: Any, thread_id: str, text: str) -> str:
-    """Like ``ask`` but only the text to show: the reply, or a failure message."""
-    return ask(agent, thread_id, text).reply
 
 
 def model_override(argv: Sequence[str], env: Mapping[str, str]) -> str | None:

@@ -8,7 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from emporio_agent.chat import answer, build_agent_from_settings
+from emporio_agent.chat import ask, build_agent_from_settings
 from emporio_agent.config import ConfigError, load_settings
 
 _EXIT_WORDS = frozenset({"sair", "exit", "quit"})
@@ -48,7 +48,8 @@ def run_chat(
             thread_id = uuid.uuid4().hex
             write("(nova conversa)")
             continue
-        write(f"Atendente: {answer(agent, thread_id, text)}")
+        turn = ask(agent, thread_id, text)
+        write(turn.error or f"Atendente: {turn.reply}")  # a system message is not the attendant
 
 
 def main() -> None:

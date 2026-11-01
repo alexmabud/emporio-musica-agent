@@ -1,7 +1,9 @@
 """Tests for the Streamlit chat UI, driven with Streamlit's own test harness (no real model)."""
 
+import tomllib
 from pathlib import Path
 
+import pytest
 from langchain_core.messages import AIMessage
 from langchain_google_genai.chat_models import GoogleRateLimitError
 from streamlit.testing.v1 import AppTest
@@ -11,7 +13,8 @@ from emporio_agent.chat import to_markdown
 from tests.fakes import ScriptedChatModel, tool_call
 from tests.helpers import make_agent
 
-APP = str(Path(__file__).resolve().parents[1] / "app.py")
+ROOT = Path(__file__).resolve().parents[1]
+APP = str(ROOT / "app.py")
 
 
 def _app(model: ScriptedChatModel, db_path: Path, policy: str, tmp_path: Path) -> AppTest:
@@ -80,15 +83,63 @@ def test_new_conversation_forgets_the_previous_one(
     assert humans == ["Oi"]
 
 
-def test_a_model_failure_is_shown_as_a_message_not_a_traceback(
+def test_a_model_failure_is_a_warning_not_something_the_assistant_said(
     db_path: Path, policy: str, tmp_path: Path
 ) -> None:
-    """When the daily quota is gone the customer reads the WhatsApp number, not a stack trace."""
+    """The quota message appears as a warning outside the chat bubbles, with the WhatsApp number."""
     quota = GoogleRateLimitError("Generate content requests per day limit exceeded on Free Tier.")
     at = _app(ScriptedChatModel(script=[quota]), db_path, policy, tmp_path)
     at.chat_input[0].set_value("Oi").run()
-    assert not at.exception
-    assert "(67) 3321" in _texts(at)[-1]
+    assert not at.exception and not at.error
+    assert len(at.warning) == 1
+    assert "limite diário" in at.warning[0].value and "(67) 3321-4500" in at.warning[0].value
+    assert [m.name for m in at.chat_message] == ["assistant", "user"]  # no assistant bubble for it
+    assert "limite diário" not in "".join(_texts(at))
+
+
+def test_the_warning_stays_in_its_place_when_the_chat_goes_on(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """A later message works normally; the earlier warning is still on screen, not a reply."""
+    quota = GoogleRateLimitError("Generate content requests per day limit exceeded on Free Tier.")
+    model = ScriptedChatModel(script=[quota, AIMessage(content="Voltei!")])
+    at = _app(model, db_path, policy, tmp_path)
+    at.chat_input[0].set_value("Oi").run()
+    at.chat_input[0].set_value("Oi de novo").run()
+    assert len(at.warning) == 1
+    assert _texts(at)[-1] == "Voltei!"
+    assert [m.name for m in at.chat_message] == ["assistant", "user", "user", "assistant"]
+    assert "o modelo não respondeu" in _sidebar_text(at)  # the panel says what happened
+
+
+def test_a_configuration_error_is_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No model configured: a warning that names the fix, not a traceback or an assistant bubble."""
+    monkeypatch.setenv("LLM_MODEL", "")
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert not at.exception and not at.error
+    assert len(at.warning) == 1 and "Erro de configuração" in at.warning[0].value
+    assert len(at.chat_message) == 0 and len(at.chat_input) == 0  # the page stops there
+
+
+def test_a_startup_failure_is_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing API key (or any failure while building the agent) is explained, not dumped."""
+    import emporio_agent.chat as chat
+
+    def broken(settings: object) -> None:
+        raise ValueError("GROQ_API_KEY not set")
+
+    monkeypatch.setenv("LLM_MODEL", "fake:model")
+    monkeypatch.setattr(chat, "build_agent_from_settings", broken)
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert not at.exception and not at.error
+    assert len(at.warning) == 1
+    assert "Não foi possível iniciar" in at.warning[0].value and ".env" in at.warning[0].value
+
+
+def test_streamlit_hides_the_deploy_button_and_the_developer_menu() -> None:
+    """The project's own config makes the toolbar minimal, so a demo shows only the chat."""
+    config = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
+    assert config["client"]["toolbarMode"] == "minimal"
 
 
 # --- sidebar: model, examples, "Por dentro do agente" ------------------------------------------

@@ -22,9 +22,9 @@ from emporio_agent.chat import (
     ask,
     build_agent_from_settings,
     model_override,
+    startup_failure_message,
     to_markdown,
 )
-from emporio_agent.config import ConfigError
 
 WELCOME = (
     "Oi! Sou o assistente virtual da Empório da Música 🎸 Posso ajudar com produtos, preços, "
@@ -101,8 +101,8 @@ def main() -> None:
             agent, model = st.session_state["agent"], st.session_state.get("model", "?")
         else:
             agent, model = load_agent(model_override(sys.argv[1:], os.environ))
-    except ConfigError as error:
-        st.error(f"Erro de configuração: {error}")
+    except Exception as error:  # a system problem, shown as a warning and not as a chat message
+        st.warning(startup_failure_message(error))
         st.stop()
 
     clicked = None
@@ -117,17 +117,25 @@ def main() -> None:
         panel = st.expander("Por dentro do agente")
 
     for role, text in st.session_state.messages:
-        with st.chat_message(role):
-            st.markdown(to_markdown(text))
+        if role == "warning":  # system messages (quota, errors) are not the assistant talking
+            st.warning(text)
+        else:
+            with st.chat_message(role):
+                st.markdown(to_markdown(text))
 
     if prompt := st.chat_input("Escreva sua mensagem") or clicked:
         st.session_state.messages.append(("user", prompt))
         with st.chat_message("user"):
             st.markdown(to_markdown(prompt))
-        with st.chat_message("assistant"), st.spinner("Consultando..."):
+        with st.spinner("Consultando..."):
             turn = ask(agent, st.session_state.thread_id, prompt)
-            st.markdown(to_markdown(turn.reply))
-        st.session_state.messages.append(("assistant", turn.reply))
+        if turn.error:
+            st.warning(turn.error)
+            st.session_state.messages.append(("warning", turn.error))
+        else:
+            with st.chat_message("assistant"):
+                st.markdown(to_markdown(turn.reply))
+            st.session_state.messages.append(("assistant", turn.reply))
         st.session_state.turns.append(turn)
 
     render_panel(panel)
