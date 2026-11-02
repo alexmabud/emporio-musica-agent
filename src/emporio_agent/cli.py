@@ -8,7 +8,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from emporio_agent.chat import ask, build_agent_from_settings
+from emporio_agent.chat import ask, build_agent_from_settings, startup_failure_message
 from emporio_agent.config import ConfigError, load_settings
 
 _EXIT_WORDS = frozenset({"sair", "exit", "quit"})
@@ -59,7 +59,10 @@ def main() -> None:
         settings = load_settings(os.environ)
     except ConfigError as error:
         sys.exit(f"Erro de configuração: {error}")
-    agent = build_agent_from_settings(settings)
+    try:
+        agent = build_agent_from_settings(settings)
+    except Exception as error:  # a missing key, an unknown model: say what to fix, no traceback
+        sys.exit(startup_failure_message(error))
     run_chat(agent)
 
 

@@ -87,3 +87,24 @@ def test_an_exhausted_daily_quota_gets_a_clear_message_with_the_whatsapp_number(
     assert limit_lines and "(67) 3321-4500" in limit_lines[0]
     assert not limit_lines[0].startswith("Atendente:")
     assert not any("Confira a chave" in line for line in printed)
+
+
+def test_a_startup_failure_is_a_clear_message_not_a_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No API key (or any failure building the agent): one line that names the fix, no stack trace.
+
+    The text of the error stays out, because it could carry a key.
+    """
+    import emporio_agent.cli as cli
+
+    def broken(settings: object) -> None:
+        raise ValueError("API key required: sk-secret-value")
+
+    monkeypatch.setenv("LLM_MODEL", "fake:model")
+    monkeypatch.setattr(cli, "build_agent_from_settings", broken)
+    with pytest.raises(SystemExit) as stop:
+        cli.main()
+    message = str(stop.value)
+    assert "Não foi possível iniciar" in message and ".env" in message and "ValueError" in message
+    assert "sk-secret-value" not in message
