@@ -108,3 +108,25 @@ def test_a_startup_failure_is_a_clear_message_not_a_traceback(
     message = str(stop.value)
     assert "Não foi possível iniciar" in message and ".env" in message and "ValueError" in message
     assert "sk-secret-value" not in message
+
+
+def test_with_only_a_google_key_the_chat_starts_even_if_a_groq_reserve_is_listed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A real build of the agent (no model call): the Groq reserve has no key, so it is skipped."""
+    import emporio_agent.cli as cli
+
+    started: list[Any] = []
+    monkeypatch.setenv("LLM_MODEL", "google_genai:gemini-3.5-flash")
+    monkeypatch.setenv("GOOGLE_API_KEY", "fake-key-never-sent")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv(
+        "GROQ_API_KEY", raising=False
+    )  # truly absent: building the Groq client fails
+    monkeypatch.setattr(cli, "load_dotenv", lambda: None)  # never read the developer's own .env
+    monkeypatch.setenv("LLM_FALLBACK_MODELS", "groq:openai/gpt-oss-120b")
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "emporio.db"))
+    monkeypatch.setenv("ESCALATIONS_PATH", str(tmp_path / "escalations.jsonl"))
+    monkeypatch.setattr(cli, "run_chat", started.append)
+    cli.main()
+    assert len(started) == 1  # the agent was built and the chat would have begun

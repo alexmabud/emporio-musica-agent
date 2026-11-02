@@ -27,39 +27,43 @@ instrumentos musicais em Campo Grande/MS. Ele responde em português do Brasil, 
 
 ## Início rápido
 
-Requisitos: Python 3.11+ e uma chave gratuita de API: Google AI Studio (https://aistudio.google.com) para o
-modelo de referência, ou Groq (https://console.groq.com) para o modelo de desenvolvimento. A primeira execução
-monta o banco SQLite a partir de `data/*.csv` (ignorado pelo git, em `var/`); mais nada precisa ser configurado.
+Requisitos: Python 3.11+ e uma chave gratuita do Google AI Studio (https://aistudio.google.com): o agente usa
+o Gemini por padrão, então essa chave é tudo de que você precisa. A primeira execução monta o banco SQLite a
+partir de `data/*.csv` (ignorado pelo git, em `var/`); mais nada precisa ser configurado.
+
+> Os comandos abaixo foram validados em **Linux e WSL (Ubuntu)**. As variantes de Windows PowerShell e
+> `cmd.exe` (marcadas no segundo bloco) **não foram testadas**.
 
 **Com `make` (Linux/macOS/WSL):**
 
 ```bash
 git clone https://github.com/alexmabud/emporio-musica-agent.git
 cd emporio-musica-agent
-cp .env.example .env          # depois defina LLM_MODEL e GOOGLE_API_KEY (veja abaixo)
+cp .env.example .env          # depois preencha GOOGLE_API_KEY (o Gemini já é o modelo padrão)
 make install                  # venv + dependências (+ pytest e ruff)
-make chat                     # CLI interativa
+make ui                       # chat em Streamlit em http://localhost:8501
 ```
 
-Outros comandos: `make ui` (chat em Streamlit em http://localhost:8501, mesmo agente e mesmo `.env` da CLI;
-veja [Interface Streamlit](#interface-streamlit)), `make test` (testes determinísticos, sem chamadas ao LLM),
-`make eval` (cenários roteirizados, chama o LLM), `make lint`.
+Outros comandos: `make chat` (o mesmo agente no terminal), `make test` (testes determinísticos, sem chamadas ao
+LLM), `make eval` (cenários roteirizados, chama o LLM), `make lint`. Veja [Interface Streamlit](#interface-streamlit).
 
-**Sem `make`** (qualquer sistema operacional, mesmo resultado):
+*Avançado:* para testar outro modelo sem editar o `.env`, passe-o ao comando, por exemplo
+`make ui ARGS="--model groq:openai/gpt-oss-120b"` (precisa da chave desse provedor, aqui `GROQ_API_KEY`).
+
+**Sem `make`** (mesmo resultado, sem precisar do Makefile):
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Linux/macOS
-# .venv\Scripts\Activate.ps1       # Windows PowerShell   (cmd.exe: .venv\Scripts\activate.bat)
+# .venv\Scripts\Activate.ps1       # Windows PowerShell   (cmd.exe: .venv\Scripts\activate.bat), não testado
 pip install -r requirements-dev.txt   # dependências de execução + projeto (editável) + pytest + ruff
                                       # só execução: pip install -r requirements.txt
-cp .env.example .env               # Windows: copy .env.example .env
-python -m emporio_agent.cli        # CLI interativa ('sair' para sair, '/novo' para uma nova conversa)
+cp .env.example .env               # Windows: copy .env.example .env; depois preencha GOOGLE_API_KEY
 streamlit run app.py               # chat em Streamlit em http://localhost:8501
+python -m emporio_agent.cli        # o mesmo agente no terminal ('sair' para sair, '/novo' para uma nova conversa)
 pytest                             # testes, sem chamadas ao LLM
 ruff check . && ruff format --check .
 python -m evals.run --pause 15     # a avaliação: chama o LLM (veja Avaliação)
-
 ```
 
 O GitHub Actions (`.github/workflows/ci.yml`) roda o mesmo lint e os mesmos testes a cada push e pull request,
@@ -71,17 +75,15 @@ em Python 3.11 com cache do pip. Não precisa de chave de API e nunca chama um m
 | Variável | Finalidade |
 |---|---|
 | `LLM_MODEL` | Modelo no formato `init_chat_model` do LangChain, por exemplo `google_genai:gemini-3.5-flash` (o padrão testado, veja [Por que este modelo](#por-que-este-modelo)). |
-| `GOOGLE_API_KEY` | Chave do Google AI Studio (plano gratuito), usada quando `LLM_MODEL` começa com `google_genai:`. |
-| `GROQ_API_KEY` | Chave da Groq (plano gratuito), usada quando `LLM_MODEL` começa com `groq:`. |
-| `LLM_FALLBACK_MODELS` | Modelos reserva opcionais, separados por vírgula, tentados em ordem quando o principal falha (veja [Cota do plano gratuito](#cota-do-plano-gratuito)). |
+| `GOOGLE_API_KEY` | Chave do Google AI Studio (plano gratuito). **A única chave necessária** com o modelo padrão. |
+| `GROQ_API_KEY` | **Opcional** (comentada no `.env.example`). Chave da Groq (plano gratuito), só necessária quando `LLM_MODEL` começa com `groq:` ou um modelo da Groq está na lista de reserva. |
+| `LLM_FALLBACK_MODELS` | Modelos reserva opcionais, separados por vírgula, tentados em ordem quando o principal falha (veja [Cota do plano gratuito](#cota-do-plano-gratuito)). Vazio por padrão. Um reserva cujo provedor não tem chave é ignorado, sem erro. |
 | `LLM_TEMPERATURE` | Temperatura de amostragem (padrão `0.2`). |
 | `GROUNDING_MAX_RETRIES` | Quantas vezes uma resposta que cita um preço ou código de rastreio que nenhuma ferramenta, política ou mensagem do cliente sustenta é regenerada antes de enviar a mensagem segura (padrão `1`; cada nova tentativa é mais uma chamada ao modelo). |
 | `DB_PATH`, `ESCALATIONS_PATH`, `FEEDBACK_PATH` | Arquivos gerados, todos na pasta `var/` (ignorada pelo git) por padrão: o banco SQLite, os casos passados a uma pessoa e os votos 👍/👎 da interface Streamlit. |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Rastreamento opcional. Deixe `LANGSMITH_TRACING=false` para desativar. |
 
-Há dois provedores suportados e **só o `LLM_MODEL` escolhe um deles**; o código não muda. Mantenha as duas
-chaves no `.env`: a que o `LLM_MODEL` não usa é ignorada. O `.env.example` tem exatamente uma linha
-`LLM_MODEL` ativa e a outra comentada. Os dois pacotes cliente estão no `requirements.txt`.
+Há dois provedores suportados e **só o `LLM_MODEL` escolhe um deles**; o código não muda. O `.env.example` já vem com o Gemini como padrão (`LLM_MODEL=google_genai:gemini-3.5-flash`), então `make ui` e `make chat` funcionam só com a `GOOGLE_API_KEY` preenchida. Para usar a Groq, descomente a `GROQ_API_KEY` e a linha `LLM_MODEL` da Groq. Os dois pacotes cliente estão no `requirements.txt`.
 
 | `LLM_MODEL` | Papel | Limites do plano gratuito |
 |---|---|---|
@@ -167,7 +169,7 @@ Além da conversa, ela tem, na barra lateral:
   de 2px, cantos arredondados, um leve brilho no foco, fundo branco) com um pouco de CSS que mira a marcação
   interna do Streamlit, por isso **a versão do Streamlit é fixada** no `requirements.txt`.
 
-Para testar outro modelo sem editar o `.env` (por exemplo, o provedor de desenvolvimento):
+**Avançado:** para testar outro modelo sem editar o `.env` (por exemplo, o provedor de desenvolvimento; precisa da chave desse provedor):
 
 ```bash
 make ui ARGS="--model groq:openai/gpt-oss-120b"      # ou APP_LLM_MODEL=groq:openai/gpt-oss-120b make ui
@@ -639,11 +641,8 @@ para poder ser inspecionado: o [`CLAUDE.md`](CLAUDE.md), as [`.claude/skills/`](
   slice com TDD, verificação, revisão, entrega). O histórico segue os slices do plano de commits: esqueleto,
   carregador de dados, preços, ferramentas, prompt, agente, guardrails, avaliações, CI, interface, exemplos, README.
 - **A cada slice:** o assistente escreveu primeiro os testes que falham, depois o código, depois rodou os testes
-  e o linter e relatou as evidências. **Eu revisei o diff e fiz o commit**; o assistente só commitou e fez push
-  quando eu pedi.
-- **O que ficou comigo:** o escopo, a stack e a escolha do modelo, como se resolvem os conflitos nos dados (os
-  dois telefones, a regra ambígua de parcelas, as descrições que contradizem as especificações), a regra para
-  falhas na avaliação (uma falha crítica para a rodada até eu decidir) e a escolha das conversas de exemplo.
+  e o linter e relatou as evidências. **Todo commit foi revisado e aprovado por mim antes de ser feito**; o assistente só commitou e fez push quando eu pedi.
+- **O que ficou comigo:** o escopo, a stack e a escolha do modelo, a regra para falhas na avaliação (uma falha crítica para a rodada até eu decidir) e a escolha das conversas de exemplo. **As decisões sobre dados e regras de negócio** (os dois telefones, a regra ambígua de parcelas, as descrições que contradizem as especificações) **foram propostas durante a análise e revisadas e aprovadas por mim.**
 - **Onde o assistente errou, e como foi percebido.** Rodar contra os modelos reais, e não o roteirizado, expôs
   os limites do plano gratuito e várias falhas de prompt (cada regra em "Aprendido em conversas reais"
   corrigiu uma). A única falha crítica da avaliação final foi um bug numa verificação que o próprio assistente

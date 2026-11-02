@@ -203,7 +203,11 @@ def test_the_model_can_be_chosen_by_argument_or_variable() -> None:
 
 def test_a_chosen_model_drops_the_reserve_models_so_nothing_else_is_called() -> None:
     """Testing the UI on Groq must never fall back to Gemini and spend its quota."""
-    env = {"LLM_MODEL": "google_genai:g", "LLM_FALLBACK_MODELS": "google_genai:g-lite"}
+    env = {
+        "LLM_MODEL": "google_genai:g",
+        "GOOGLE_API_KEY": "fake",  # a reserve is only kept when its provider has a key
+        "LLM_FALLBACK_MODELS": "google_genai:g-lite",
+    }
     assert app_settings(env, None).llm_fallback_models == ("google_genai:g-lite",)
     chosen = app_settings(env, "groq:openai/gpt-oss-120b")
     assert chosen.llm_model == "groq:openai/gpt-oss-120b" and chosen.llm_fallback_models == ()

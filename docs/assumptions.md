@@ -345,3 +345,10 @@ with uniform keys per category.
   lock, which is fine for one process and a demo, not for several servers. The turn number counts every
   customer message, including one that only got a system warning. Nothing about this reaches the agent or the
   prompt, so it does not touch the frozen version of the evals.
+- **Gemini is the default and needs only `GOOGLE_API_KEY`.** `.env.example` ships `LLM_MODEL=google_genai:gemini-3.5-flash`
+  with `GROQ_API_KEY` commented out and `LLM_FALLBACK_MODELS` empty, so `make ui` and `make chat` need nothing
+  but the Google key. A reserve model whose provider has no key (a `groq:` model with no `GROQ_API_KEY`, or a
+  `google_genai:` one with neither `GOOGLE_API_KEY` nor `GEMINI_API_KEY`) is left out of the chain when the
+  settings are read, with no error and no log line, because the reserve list is optional by design. The model
+  in use is never filtered: a missing key for it stays a visible startup message. Providers the code does not
+  know are not judged. A blank `GROQ_API_KEY=` counts as absent.

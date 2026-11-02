@@ -25,38 +25,43 @@ store's policy manual.
 
 ## Quick start
 
-Requirements: Python 3.11+ and one free API key: Google AI Studio (https://aistudio.google.com) for the
-reference model, or Groq (https://console.groq.com) for the development model. The first run builds the
-SQLite database from `data/*.csv` (git-ignored, in `var/`); nothing else needs setting up.
+Requirements: Python 3.11+ and a free Google AI Studio key (https://aistudio.google.com): the agent uses
+Gemini by default, so that key is all you need. The first run builds the SQLite database from `data/*.csv`
+(git-ignored, in `var/`); nothing else needs setting up.
+
+> The commands below were validated on **Linux and WSL (Ubuntu)**. The Windows PowerShell and `cmd.exe`
+> variants (marked in the second block) were **not tested**.
 
 **With `make` (Linux/macOS/WSL):**
 
 ```bash
 git clone https://github.com/alexmabud/emporio-musica-agent.git
 cd emporio-musica-agent
-cp .env.example .env          # then set LLM_MODEL and GOOGLE_API_KEY (see below)
+cp .env.example .env          # then fill in GOOGLE_API_KEY (Gemini is already the default model)
 make install                  # venv + dependencies (+ pytest and ruff)
-make chat                     # interactive CLI
+make ui                       # Streamlit chat at http://localhost:8501
 ```
 
-Other commands: `make ui` (Streamlit chat at http://localhost:8501, same agent and `.env` as the CLI; see [Streamlit UI](#streamlit-ui)), `make test` (deterministic tests, no LLM calls),
-`make eval` (scripted scenarios, calls the LLM), `make lint`.
+Other commands: `make chat` (the same agent in the terminal), `make test` (deterministic tests, no LLM
+calls), `make eval` (scripted scenarios, calls the LLM), `make lint`. See [Streamlit UI](#streamlit-ui).
 
-**Without `make`** (any OS, same result):
+*Advanced:* to try another model without editing `.env`, pass it to the command, for example
+`make ui ARGS="--model groq:openai/gpt-oss-120b"` (it needs that provider's key, here `GROQ_API_KEY`).
+
+**Without `make`** (same result, no Makefile needed):
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate          # Linux/macOS
-# .venv\Scripts\Activate.ps1       # Windows PowerShell   (cmd.exe: .venv\Scripts\activate.bat)
+# .venv\Scripts\Activate.ps1       # Windows PowerShell   (cmd.exe: .venv\Scripts\activate.bat), not tested
 pip install -r requirements-dev.txt   # runtime deps + project (editable) + pytest + ruff
                                       # runtime only: pip install -r requirements.txt
-cp .env.example .env               # Windows: copy .env.example .env
-python -m emporio_agent.cli        # interactive CLI ('sair' to leave, '/novo' for a new chat)
+cp .env.example .env               # Windows: copy .env.example .env; then fill in GOOGLE_API_KEY
 streamlit run app.py               # Streamlit chat at http://localhost:8501
+python -m emporio_agent.cli        # the same agent in the terminal ('sair' to leave, '/novo' for a new chat)
 pytest                             # tests, no LLM calls
 ruff check . && ruff format --check .
 python -m evals.run --pause 15     # the eval: calls the LLM (see Evaluation)
-
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same lint and tests on every push and pull request,
@@ -67,17 +72,15 @@ on Python 3.11 with a pip cache. It needs no API key and never calls a model; `m
 | Variable | Purpose |
 |---|---|
 | `LLM_MODEL` | Model in LangChain `init_chat_model` format, e.g. `google_genai:gemini-3.5-flash` (the tested default, see [Why this model](#why-this-model)). |
-| `GOOGLE_API_KEY` | Google AI Studio key (free tier), used when `LLM_MODEL` starts with `google_genai:`. |
-| `GROQ_API_KEY` | Groq key (free tier), used when `LLM_MODEL` starts with `groq:`. |
-| `LLM_FALLBACK_MODELS` | Optional reserve models, comma-separated, tried in order when the main one fails (see [Free-tier quota](#free-tier-quota)). |
+| `GOOGLE_API_KEY` | Google AI Studio key (free tier). **The only key needed** with the default model. |
+| `GROQ_API_KEY` | **Optional** (commented out in `.env.example`). Groq key (free tier), only needed when `LLM_MODEL` starts with `groq:` or a Groq model is listed as a reserve. |
+| `LLM_FALLBACK_MODELS` | Optional reserve models, comma-separated, tried in order when the main one fails (see [Free-tier quota](#free-tier-quota)). Empty by default. A reserve whose provider has no key is ignored, with no error. |
 | `LLM_TEMPERATURE` | Sampling temperature (default `0.2`). |
 | `GROUNDING_MAX_RETRIES` | How many times a reply that states a price or tracking code no tool, policy or customer message supports is regenerated before the safe message is sent (default `1`; each retry is one more model call). |
 | `DB_PATH`, `ESCALATIONS_PATH`, `FEEDBACK_PATH` | Generated files, all under the git-ignored `var/` by default: the SQLite database, the cases handed to a person and the 👍/👎 votes of the Streamlit UI. |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Optional tracing. Leave `LANGSMITH_TRACING=false` to disable. |
 
-Two providers are supported and **only `LLM_MODEL` selects one**; the code does not change. Keep both
-keys in `.env`: the one that `LLM_MODEL` does not use is ignored. `.env.example` has exactly one active
-`LLM_MODEL` line and the other one commented out. Both client packages are in `requirements.txt`.
+Two providers are supported and **only `LLM_MODEL` selects one**; the code does not change. `.env.example` ships with Gemini as the default (`LLM_MODEL=google_genai:gemini-3.5-flash`), so `make ui` and `make chat` work with only `GOOGLE_API_KEY` filled in. To use Groq, uncomment `GROQ_API_KEY` and the Groq `LLM_MODEL` line. Both client packages are in `requirements.txt`.
 
 | `LLM_MODEL` | Role | Free-tier limits |
 |---|---|---|
@@ -160,7 +163,7 @@ Besides the conversation it has, in the sidebar:
   glow on focus, white background) with a little CSS aimed at Streamlit's internal markup, so **the Streamlit
   version is pinned** in `requirements.txt`.
 
-To try another model without editing `.env` (for example on the development provider):
+**Advanced:** to try another model without editing `.env` (for example on the development provider; it needs that provider's key):
 
 ```bash
 make ui ARGS="--model groq:openai/gpt-oss-120b"      # or APP_LLM_MODEL=groq:openai/gpt-oss-120b make ui
@@ -610,12 +613,8 @@ commits the assistant helped write.
   slice, verification, review, ship). The history follows the slices of the commit plan: scaffold, data
   loader, pricing, tools, prompt, agent, guardrails, evals, CI, UI, examples, README.
 - **Each slice:** the assistant wrote the failing tests first, then the code, then ran the tests and the
-  linter and reported the evidence. **I reviewed the diff and committed it**; the assistant committed and
-  pushed only when I asked.
-- **What stayed mine:** the scope, the stack and the model choice, how the conflicts in the data are resolved
-  (the two phone numbers, the ambiguous installment rule, the descriptions that contradict the specs), the rule
-  for failures in the eval (a critical failure stops the run until I decide) and the choice of the example
-  conversations.
+  linter and reported the evidence. **Every commit was reviewed and approved by me before it was made**; the assistant committed and pushed only when I asked.
+- **What stayed mine:** the scope, the stack and the model choice, the rule for failures in the eval (a critical failure stops the run until I decide) and the choice of the example conversations. **Data and business-rule decisions** (the two phone numbers, the ambiguous installment rule, the descriptions that contradict the specs) **were proposed during the analysis and reviewed and approved by me.**
 - **Where the assistant was wrong, and how it was caught.** Running against the real models, not the scripted
   one, exposed the free-tier limits and several prompt failures (each rule under "Learned from real
   conversations" fixed one). The only critical failure of the final eval was a bug in a check the assistant

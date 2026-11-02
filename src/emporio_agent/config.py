@@ -6,6 +6,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# Environment variables that carry each provider's key (any one of them is enough).
+_PROVIDER_KEYS = {"google_genai": ("GOOGLE_API_KEY", "GEMINI_API_KEY"), "groq": ("GROQ_API_KEY",)}
+
 
 class ConfigError(RuntimeError):
     """Raised when a setting is missing or invalid; the message says how to fix it."""
@@ -18,7 +21,9 @@ class Settings:
     Attributes:
         llm_model: Model in LangChain ``init_chat_model`` format, e.g. ``google_genai:<model>``.
         llm_temperature: Sampling temperature.
-        llm_fallback_models: Reserve models, tried in order when the main one fails.
+        llm_fallback_models: Reserve models, tried in order when the main one fails. A reserve
+            whose provider has no API key is left out, so a ``.env`` with only ``GOOGLE_API_KEY``
+            works even if the list names a Groq model.
         grounding_max_retries: Regenerations allowed for a reply with unverified amounts.
         data_dir: Folder with the original CSVs and the policy PDF.
         policy_pdf: The policy manual.
@@ -42,6 +47,12 @@ def _path(env: Mapping[str, str], name: str, default: str, root: Path) -> Path:
     """Read a path setting; relative paths hang from the project root."""
     path = Path(env.get(name) or default)
     return path if path.is_absolute() else root / path
+
+
+def _has_key(spec: str, env: Mapping[str, str]) -> bool:
+    """Whether the provider of a ``provider:model`` spec has a key set (unknown providers pass)."""
+    names = _PROVIDER_KEYS.get(spec.split(":", 1)[0])
+    return names is None or any((env.get(name) or "").strip() for name in names)
 
 
 def load_settings(env: Mapping[str, str], root: Path = PROJECT_ROOT) -> Settings:
@@ -76,11 +87,12 @@ def load_settings(env: Mapping[str, str], root: Path = PROJECT_ROOT) -> Settings
             f"GROUNDING_MAX_RETRIES must be a non-negative integer, got {retries_text!r}."
         )
     fallbacks = [name.strip() for name in (env.get("LLM_FALLBACK_MODELS") or "").split(",")]
+    fallbacks = [name for name in fallbacks if name and _has_key(name, env)]
     data_dir = root / "data"
     return Settings(
         llm_model=model,
         llm_temperature=temperature,
-        llm_fallback_models=tuple(name for name in fallbacks if name),
+        llm_fallback_models=tuple(fallbacks),
         grounding_max_retries=int(retries_text),
         data_dir=data_dir,
         policy_pdf=data_dir / "politicas_da_loja.pdf",
