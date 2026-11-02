@@ -48,8 +48,9 @@ What was done beyond what the brief asked for:
   the manager" (section 10), so a borderline case is escalated before any verdict.
 - **"No information" is not "we don't do it":** the agent never denies or invents a service it has no data
   about; it quotes the part the manual covers, says what is missing and offers an attendant.
-- **A look inside the agent:** the "Por dentro do agente" panel (tools, grounding, escalations) and 👍/👎
-  feedback on every answer.
+- **A look inside the agent:** the "Por dentro do agente" panel (tools, grounding, escalations).
+- **User feedback loop:** 👍/👎 on every answer, saved locally with personal data masked; each record keeps
+  the question, reply and tools, so poorly rated answers can become new eval scenarios.
 
 ### The brief's suggested questions
 

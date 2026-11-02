@@ -56,8 +56,10 @@ O que foi feito além do que o enunciado pedia:
   consultar a gerência" (seção 10), de modo que um caso limite é escalado antes de qualquer veredito.
 - **"Sem informação" não é "não fazemos":** o agente nunca nega nem inventa um serviço sobre o qual não tem
   dados; cita a parte que o manual cobre, diz o que falta e oferece um atendente.
-- **Um olhar por dentro do agente:** o painel "Por dentro do agente" (ferramentas, grounding, escalações) e o
-  👍/👎 em cada resposta.
+- **Um olhar por dentro do agente:** o painel "Por dentro do agente" (ferramentas, grounding, escalações).
+- **Ciclo de feedback do usuário:** 👍/👎 em cada resposta, salvo localmente com dados pessoais mascarados;
+  cada registro guarda a pergunta, a resposta e as tools, para que respostas mal avaliadas virem novos
+  cenários de eval.
 
 ### As perguntas sugeridas no enunciado
 
