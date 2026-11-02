@@ -15,7 +15,7 @@ The three deliverables of the brief and where each one is.
 
 | # | Deliverable (from the brief) | Where it is |
 |---|---|---|
-| 1 | Public repository with real commit history | The [commit history](https://github.com/alexmabud/emporio-musica-agent/commits/main) on GitHub: incremental commits, one per slice of work. |
+| 1 | Public repository with real commit history | The [commit history](https://github.com/alexmabud/emporio-musica-agent/commits/main) on GitHub: incremental commits that follow the slices of work. |
 | 2 | README: setup, technical decisions, known limitations and what to do with more time, use of AI coding assistants | Setup: [Quick start](#quick-start). Decisions: [Technical decisions](#technical-decisions). Limitations: [Known limitations](#known-limitations) and [With more time](#with-more-time). AI: [Use of AI coding assistants](#use-of-ai-coding-assistants). |
 | 3 | 3 to 5 example conversations, at least one non-trivial | [`examples/`](examples/): 5 conversations generated from the real run of the agent, not edited (see [Example conversations](#example-conversations)). Non-trivial ones: a live lookup behind the identity check (02), rules applied in code (03) and a policy case escalated to a person (05). |
 
@@ -677,7 +677,7 @@ commits the assistant helped write.
   loader, pricing, tools, prompt, agent, guardrails, evals, CI, UI, examples, README.
 - **Each slice:** the assistant wrote the failing tests first, then the code, then ran the tests and the
   linter and reported the evidence. **Every commit was reviewed and approved by me before it was made**; the assistant committed and pushed only when I asked.
-- **What stayed mine:** the scope, the stack and the model choice, the rule for failures in the eval (a critical failure stops the run until I decide) and the choice of the example conversations. **Data and business-rule decisions** (the two phone numbers, the ambiguous installment rule, the descriptions that contradict the specs) **were proposed during the analysis and reviewed and approved by me.**
+- **What stayed mine:** the scope, the final call on the stack and the model, the rule for failures in the eval (a critical failure stops the run until I decide) and the choice of the example conversations. **Data and business-rule decisions** (the two phone numbers, the ambiguous installment rule, the descriptions that contradict the specs) **were proposed during the analysis and reviewed and approved by me.**
 - **Where the assistant was wrong, and how it was caught.** Running against the real models, not the scripted
   one, exposed the free-tier limits and several prompt failures (each rule under "Learned from real
   conversations" fixed one). The only critical failure of the final eval was a bug in a check the assistant

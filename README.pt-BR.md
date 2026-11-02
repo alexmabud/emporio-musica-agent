@@ -18,7 +18,7 @@ Os três entregáveis do enunciado e onde está cada um.
 
 | # | Entregável (do enunciado) | Onde está |
 |---|---|---|
-| 1 | Repositório público com histórico de commits real | O [histórico de commits](https://github.com/alexmabud/emporio-musica-agent/commits/main) no GitHub: commits incrementais, um por etapa de trabalho. |
+| 1 | Repositório público com histórico de commits real | O [histórico de commits](https://github.com/alexmabud/emporio-musica-agent/commits/main) no GitHub: commits incrementais que seguem as etapas de trabalho. |
 | 2 | README: instruções para rodar, decisões técnicas, limitações conhecidas e o que faria com mais tempo, uso de assistentes de código | Instruções: [Início rápido](#início-rápido). Decisões: [Decisões técnicas](#decisões-técnicas). Limitações: [Limitações conhecidas](#limitações-conhecidas) e [Com mais tempo](#com-mais-tempo). IA: [Uso de assistentes de código com IA](#uso-de-assistentes-de-código-com-ia). |
 | 3 | 3 a 5 conversas de exemplo, ao menos uma não trivial | [`examples/`](examples/): 5 conversas geradas a partir da execução real do agente, sem edição (veja [Conversas de exemplo](#conversas-de-exemplo)). As não triviais: uma consulta em tempo real atrás da verificação de identidade (02), regras aplicadas em código (03) e um caso de política escalado para uma pessoa (05). |
 
@@ -713,7 +713,7 @@ para poder ser inspecionado: o [`CLAUDE.md`](CLAUDE.md), as [`.claude/skills/`](
   carregador de dados, preços, ferramentas, prompt, agente, guardrails, avaliações, CI, interface, exemplos, README.
 - **A cada slice:** o assistente escreveu primeiro os testes que falham, depois o código, depois rodou os testes
   e o linter e relatou as evidências. **Todo commit foi revisado e aprovado por mim antes de ser feito**; o assistente só commitou e fez push quando eu pedi.
-- **O que ficou comigo:** o escopo, a stack e a escolha do modelo, a regra para falhas na avaliação (uma falha crítica para a rodada até eu decidir) e a escolha das conversas de exemplo. **As decisões sobre dados e regras de negócio** (os dois telefones, a regra ambígua de parcelas, as descrições que contradizem as especificações) **foram propostas durante a análise e revisadas e aprovadas por mim.**
+- **O que ficou comigo:** o escopo, a decisão final sobre a stack e o modelo, a regra para falhas na avaliação (uma falha crítica para a rodada até eu decidir) e a escolha das conversas de exemplo. **As decisões sobre dados e regras de negócio** (os dois telefones, a regra ambígua de parcelas, as descrições que contradizem as especificações) **foram propostas durante a análise e revisadas e aprovadas por mim.**
 - **Onde o assistente errou, e como foi percebido.** Rodar contra os modelos reais, e não o roteirizado, expôs
   os limites do plano gratuito e várias falhas de prompt (cada regra em "Aprendido em conversas reais"
   corrigiu uma). A única falha crítica da avaliação final foi um bug numa verificação que o próprio assistente
