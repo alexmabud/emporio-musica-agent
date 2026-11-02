@@ -376,6 +376,28 @@ def test_the_welcome_is_the_agreed_text_and_points_to_the_typing_box(
     )
 
 
+def test_the_chosen_thumb_is_green_and_larger_and_the_other_one_stays_gray(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """CSS only for Streamlit's "active" feedback button, in the theme's primaryColor."""
+    at = _app(ScriptedChatModel(script=[]), db_path, policy, tmp_path)
+    green = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))[
+        "theme"
+    ]["primaryColor"]
+    rules = {}  # selector -> declarations, for the rules the page injects
+    for block in _css(at).split("}"):
+        if "{" in block:
+            selector, declarations = block.split("{", 1)
+            rules[selector.strip()] = declarations
+    active = rules['[data-testid="stFeedbackButtonActive"]']
+    assert f"color: {green} !important" in active
+    assert "transform: scale(" in active
+    # No rule gives the unselected thumb a color of its own, so it keeps Streamlit's gray.
+    for selector, declarations in rules.items():
+        if selector != '[data-testid="stFeedbackButtonActive"]' and "stFeedbackButton" in selector:
+            assert "color: " not in declarations.replace("transition", "")
+
+
 def test_streamlit_is_pinned_because_the_css_uses_its_internal_selectors() -> None:
     """The CSS relies on Streamlit's internal markup, so the version is pinned and matches."""
     from importlib.metadata import version

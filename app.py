@@ -73,6 +73,25 @@ def chat_input_css(color: str) -> str:
 </style>"""
 
 
+def feedback_css(color: str) -> str:
+    """CSS that makes the chosen 👍/👎 easy to see: ``color`` and a slightly larger icon.
+
+    Streamlit marks the selected thumb with ``data-testid="stFeedbackButtonActive"`` and the
+    other one with ``stFeedbackButton``; the icon inherits the button's color. Only the selected
+    one is touched, so the other keeps Streamlit's gray. Internal markup, like ``chat_input_css``:
+    the Streamlit version is pinned.
+    """
+    return f"""<style>
+[data-testid="stFeedbackButton"], [data-testid="stFeedbackButtonActive"] {{
+    transition: transform 0.12s ease, color 0.12s ease;
+}}
+[data-testid="stFeedbackButtonActive"] {{
+    color: {color} !important;
+    transform: scale(1.25);
+}}
+</style>"""
+
+
 def new_conversation() -> None:
     """Start a fresh conversation: a new memory thread, the welcome and an empty panel."""
     st.session_state.thread_id = uuid.uuid4().hex
@@ -153,10 +172,8 @@ def render_panel(panel: Any, model: str) -> None:
 def main() -> None:
     """Draw the page and handle one customer message."""
     st.set_page_config(page_title="Empório da Música", page_icon="🎸")
-    st.markdown(
-        chat_input_css(st.get_option("theme.primaryColor") or PRIMARY_GREEN),
-        unsafe_allow_html=True,
-    )
+    green = st.get_option("theme.primaryColor") or PRIMARY_GREEN
+    st.markdown(chat_input_css(green) + feedback_css(green), unsafe_allow_html=True)
     st.title("🎸 Empório da Música")
     st.caption("Atendimento virtual")
 
