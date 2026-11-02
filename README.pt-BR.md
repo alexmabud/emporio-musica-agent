@@ -10,8 +10,60 @@ instrumentos musicais em Campo Grande/MS. Ele responde em português do Brasil, 
 (preços, estoque, promoções, status de pedidos) por meio de ferramentas tipadas e responde dúvidas de política
 (trocas, horários, pagamento, frete) a partir do manual de políticas da loja.
 
+## Em resumo
+
+### Decisões
+
+As cinco decisões que o enunciado pede para justificar, em duas linhas cada (os detalhes estão nas seções
+indicadas).
+
+| Decisão | Escolha | Por quê | Detalhes |
+|---|---|---|---|
+| Framework(s) / abordagem do agente | Um agente ReAct com chamada de funções (`create_agent` do LangChain) e seis ferramentas tipadas; o manual de políticas vai no prompt. | O próprio modelo decide quando uma pergunta precisa de dados em tempo real e quando precisa de uma regra, e o manual tem 8 páginas, então um banco vetorial só traria erros de recuperação. | [Decisões técnicas](#decisões-técnicas) |
+| Modelo e provedor | `gemini-3.5-flash` no Google AI Studio (gratuito) por padrão; `gpt-oss-120b` na Groq para desenvolvimento. Só o `LLM_MODEL` escolhe um. | Escolhido testando o roteamento de ferramentas com as ferramentas reais, e gratuito para reproduzir; o código não depende do provedor. | [Por que este modelo](#por-que-este-modelo) |
+| Interface de interação | Um chat no terminal e um chat em Streamlit, as duas camadas finas sobre o mesmo agente. | O foco é o agente; a página Streamlit também mostra o que acontece por dentro dele (ferramentas chamadas, verificação de grounding). | [Interface Streamlit](#interface-streamlit) |
+| Persistência do histórico de conversa | Mantido durante a conversa (um checkpointer por `thread_id`) e **não** entre sessões. | As perguntas de seguimento e a verificação de identidade em dois turnos precisam dele. Não guardar entre sessões é uma escolha: num protótipo isso guardaria dados pessoais sem necessidade (LGPD). A persistência por cliente, com consentimento, está em [Com mais tempo](#com-mais-tempo). | [Decisões técnicas](#decisões-técnicas) |
+| Tratamento dos dados | Os CSVs são auditados e limpos com pandas para o SQLite e lidos só por ferramentas tipadas e parametrizadas; preços, PIX e parcelas são calculados em código. | A auditoria achou problemas reais (veja os destaques), e os números precisam ser exatos e testáveis; não há SQL livre. | [Tratamento dos dados](#tratamento-dos-dados) |
+
+### Destaques
+
+O que foi feito além do que o enunciado pedia:
+
+- **Uma auditoria dos dados**, não só limpeza: um e-mail compartilhado entre dois clientes, sete produtos cujas
+  descrições contradizem as especificações e dois telefones conflitantes no manual de políticas, cada um com uma
+  regra documentada.
+- **Grounding em código:** todo valor em `R$` e código de rastreio de uma resposta precisa vir de um resultado de
+  ferramenta, do manual ou do cliente; senão a resposta é regenerada uma vez e depois trocada por uma mensagem
+  segura.
+- **Uma avaliação, não uma demonstração:** verificações de trajetória e de fatos-chave, níveis crítico e
+  desejável, retomada ao longo dos dias com trava de versão e reavaliação de um resultado salvo sem nova chamada
+  ao modelo.
+- **O modelo escolhido por teste**, com o código independente do provedor (só o `LLM_MODEL` muda).
+- **Cuidado com a LGPD:** a verificação de identidade roda contra o cliente daquele pedido, uma verificação que
+  falha responde igual quer o pedido exista ou não, e e-mails e telefones são mascarados no painel e no arquivo
+  de feedback.
+- **Escalação para uma pessoa a partir do manual:** a janela de 24 horas úteis (política 7.3) e "na dúvida,
+  consultar a gerência" (seção 10), de modo que um caso limite é escalado antes de qualquer veredito.
+- **"Sem informação" não é "não fazemos":** o agente nunca nega nem inventa um serviço sobre o qual não tem
+  dados; cita a parte que o manual cobre, diz o que falta e oferece um atendente.
+- **Um olhar por dentro do agente:** o painel "Por dentro do agente" (ferramentas, grounding, escalações) e o
+  👍/👎 em cada resposta.
+
+### As perguntas sugeridas no enunciado
+
+Cada pergunta sugerida no enunciado corresponde a um cenário da avaliação, todos aprovados no modelo de
+referência (o texto do cenário é uma versão abreviada da mesma pergunta).
+
+| Pergunta sugerida | Cenário da avaliação | Modelo de referência | Conversa |
+|---|---|---|---|
+| "Quais opções de violões disponíveis custando até R$1000?" | 1 | ✅ | |
+| "Qual o endereço da loja?" | 9b | ✅ | |
+| "Quanto custa o Takamine GD20?" | 2 | ✅ | |
+| "Me arrependi da minha compra, posso devolver meu pedido?" | 3 | ✅ | [01 – Política de devolução](examples/01-return-policy.md) |
+
 ## Sumário
 
+- [Em resumo](#em-resumo)
 - [Início rápido](#início-rápido)
 - [Como funciona](#como-funciona)
 - [Interface Streamlit](#interface-streamlit)
@@ -23,7 +75,6 @@ instrumentos musicais em Campo Grande/MS. Ele responde em português do Brasil, 
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Com mais tempo](#com-mais-tempo)
 - [Uso de assistentes de código com IA](#uso-de-assistentes-de-código-com-ia)
-
 
 ## Início rápido
 
@@ -129,7 +180,6 @@ docs/                assumptions.md (toda decisão tomada onde o enunciado era o
 
 ## Interface Streamlit
 
-
 O `make ui` (ou `streamlit run app.py`) abre uma página de chat sobre o mesmo agente do terminal.
 
 ![Chat em Streamlit no modelo de referência: pedido 8 depois da verificação de identidade, com o painel "Por dentro do agente" aberto e os polegares sob a resposta](docs/images/streamlit-order-status.png)
@@ -216,7 +266,7 @@ reproduzir o projeto sem cartão de crédito.
 | **Gemini (Google AI Studio)** | Sim, plano gratuito com limites de taxa | **Sim** (modelos, chamada de ferramentas e roteamento abaixo) | **Escolhida.** Rápida, suporta chamada de ferramentas, contexto grande, uma única chave de API. |
 | **Groq (modelos de pesos abertos hospedados)** | Sim, plano gratuito com limites de taxa | **Sim** (teste rápido e roteamento abaixo) | **Escolhida para desenvolvimento.** Limite diário grande, muito rápida, mas com um orçamento pequeno de tokens por minuto. |
 | Modelo local (por exemplo, via Ollama) | Sim, roda na máquina do avaliador | **Não** | Melhor para privacidade (nada sai da máquina), mas exige hardware e o download de um modelo, e modelos locais pequenos costumam ser menos confiáveis em chamada de ferramentas. Não escolhida para um protótipo que precisa rodar em qualquer lugar. |
-| APIs pagas | Não | Não | Descartadas pelo requisito "gratuito e reproduzível". |
+| APIs pagas | Não | Não | Descartadas para manter o projeto gratuito de reproduzir (uma escolha deste projeto, não um requisito do enunciado). |
 
 **Dois provedores, dois papéis.** O plano gratuito do Gemini permite só cerca de 20 requisições por dia por
 modelo, o que não basta para iterar num prompt, e o da Groq permite 1.000. Então:
@@ -400,7 +450,7 @@ Problemas encontrados no conjunto de dados e como são tratados:
 | Alguns totais de pedidos não batem com itens × preço (pedidos 3 e 20) | O `total_brl` armazenado é informado como fonte da verdade. |
 | O produto 130 é `coming_soon` e mesmo assim aparece nos pedidos 3 e 14 | Informado como armazenado. Registrado como inconsistência dos dados. |
 | Clientes com nomes parecidos | Identificados só por e-mail ou telefone, nunca pelo nome. |
-| Os clientes 11 e 43 compartilham o e-mail `bruno.martins@jmail.com` | A verificação de identidade roda contra o cliente **daquele pedido**. Se o e-mail informado pertence a mais de um cliente, o agente pede o telefone antes de liberar qualquer dado. Marcado como `email_is_shared`; a regra é aplicada e testada no slice das ferramentas. |
+| Os clientes 11 e 43 compartilham o e-mail `bruno.martins@jmail.com` | A verificação de identidade roda contra o cliente **daquele pedido**. Se o e-mail informado pertence a mais de um cliente, o agente pede o telefone antes de liberar qualquer dado. Marcado como `email_is_shared`; a regra é aplicada e testada nas ferramentas. |
 
 ## Premissas
 
@@ -553,12 +603,10 @@ não uma resposta errada; por isso fica registrada aqui, e a verificação não 
 
 ## Limitações conhecidas
 
-
-
 - No modelo de referência, os cenários 17 e 18 (setup de guitarra) deixam de cumprir um ponto desejável: a resposta
   cita a política 4.4 e nunca nega o serviço, mas não diz que ajustes sob encomenda não são trocáveis (veja [Resultados](#resultados)).
-- A memória fica no processo por padrão, então uma conversa não sobrevive a uma reinicialização. O histórico
-  é aparado para as últimas 40 mensagens por conversa.
+- A memória fica no processo por padrão, então uma conversa não sobrevive a uma reinicialização. Isso é uma
+  escolha (veja [Em resumo](#em-resumo)). O histórico é aparado para as últimas 40 mensagens por conversa.
 - O plano gratuito permite cerca de 20 requisições por dia por modelo (veja
   [Cota do plano gratuito](#cota-do-plano-gratuito)). O agente tenta primeiro o modelo principal esgotado a
   cada turno antes de cair para um reserva; um disjuntor que lembrasse dos modelos esgotados evitaria essa
@@ -580,7 +628,6 @@ não uma resposta errada; por isso fica registrada aqui, e a verificação não 
   Outra rodada poderia redigir de outro jeito; as transcrições salvas deixam qualquer pessoa ler o que foi dito.
 - **Só o modelo de referência tem avaliação completa** (veja [Avaliação](#avaliação)). O modelo de
   desenvolvimento foi iterado cenário por cenário, então seu comportamento é menos conhecido que o do de referência.
-
 - **O estilo da caixa de digitação e dos polegares depende de partes internas do Streamlit.** O CSS mira
   `data-testid="stChatInput"`, o seu primeiro filho e `stFeedbackButtonActive` (o 👍/👎 escolhido), que não são uma API pública, então o `streamlit` é
   fixado (`==1.66.1`) e uma atualização exige conferir a caixa a olho. O harness de testes não renderiza CSS,
@@ -615,15 +662,29 @@ não uma resposta errada; por isso fica registrada aqui, e a verificação não 
 - RAG vetorial com reordenação se a base de políticas crescer.
 - Um `StateGraph` próprio do LangGraph com nós explícitos (classificar, recuperar, responder, validar).
 - Avaliação com LLM como juiz por cima das verificações de trajetória e fatos-chave.
+- Uma avaliação estatística: N execuções por cenário em vez de uma, para medir com que frequência cada
+  verificação passa.
+- Versionamento do prompt com a avaliação como porta de entrada no CI, para que uma mudança de prompt que
+  quebre uma verificação crítica não possa ser integrada.
+- Um cache semântico para perguntas frequentes (horário, endereço, política de troca), para economizar
+  requisições e latência.
 - Um painel sobre os votos 👍/👎 e um jeito de transformar respostas mal avaliadas (o arquivo já guarda pergunta,
   resposta e ferramentas) em novos cenários de avaliação.
 - Conferir no modelo de referência os casos de "não conecta a informação" e, se preciso, acrescentar um índice
   dos serviços que o manual menciona de passagem (por exemplo, ajustes sob encomenda na seção 4.4), para que
   uma pergunta sobre um serviço os encontre.
 - FastAPI, Docker e uma integração com o WhatsApp.
-- PostgreSQL no lugar do SQLite e memória persistente por cliente entre sessões.
+- PostgreSQL no lugar do SQLite.
+- Memória persistente por cliente entre sessões, com o consentimento do cliente (LGPD). Hoje o histórico vive
+  só durante a conversa, por escolha.
 - Um carrinho com vários produtos, com a elegibilidade ao PIX decidida por item.
 - Remoção de dados pessoais nos logs e uma integração real de tickets para as escalações.
+- **Observabilidade e controle de custo (Prometheus + Grafana).** Métricas por modelo: tokens e requisições,
+  custo estimado em R$ por dia e por conversa, latência p50 e p95, taxa de erro do provedor, taxa de nova
+  tentativa e de mensagem segura do grounding, taxa de escalação e taxa de 👎. Alertas: a cota diária e o
+  orçamento mensal (em reais) em 80% e ao estourar, com projeção do mês; provedor fora do ar ou latência p95
+  alta; pico de falhas de grounding ou de 👎. Mais a troca automática para o modelo reserva e um disjuntor
+  que lembre dos modelos esgotados.
 - Cache de prompt do provedor para o prefixo estático (persona mais política completa). Não é controlável no
   plano gratuito, então fica fora do escopo por enquanto.
 

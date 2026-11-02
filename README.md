@@ -7,12 +7,58 @@ Campo Grande/MS. It answers in Brazilian Portuguese, looks up live store data (p
 order status) through typed tools, and answers policy questions (returns, hours, payment, shipping) from the
 store's policy manual.
 
+## At a glance
+
+### Decisions
+
+The five decisions the brief asks to justify, in two lines each (the details are in the linked sections).
+
+| Decision | Choice | Why | Details |
+|---|---|---|---|
+| Agent framework / approach | A ReAct agent with function calling (LangChain `create_agent`) and six typed tools; the policy manual goes in the prompt. | The model itself decides when a question needs live data and when it needs a rule, and the manual is 8 pages, so a vector store would only add retrieval errors. | [Technical decisions](#technical-decisions) |
+| Model and provider | `gemini-3.5-flash` on Google AI Studio (free) by default; `gpt-oss-120b` on Groq for development. Only `LLM_MODEL` selects one. | Chosen by testing tool routing on the real tools, and free to reproduce; the code does not depend on the provider. | [Why this model](#why-this-model) |
+| Interaction interface | A terminal chat and a Streamlit chat, both thin layers over the same agent. | The focus is the agent; the Streamlit page also shows what happens inside it (tools called, grounding check). | [Streamlit UI](#streamlit-ui) |
+| Conversation history persistence | Kept during the conversation (a checkpointer per `thread_id`) and **not** across sessions. | Follow-up questions and the two-turn identity check need it. Not keeping it across sessions is a choice: in a prototype it would store personal data for no need (LGPD). Per-customer persistence, with consent, is in [With more time](#with-more-time). | [Technical decisions](#technical-decisions) |
+| Data handling | The CSVs are audited and cleaned with pandas into SQLite and read only through typed, parameterized tools; prices, PIX and installments are computed in code. | The audit found real problems (see the highlights), and the numbers must be exact and testable; there is no free-form SQL. | [Data handling](#data-handling) |
+
+### Highlights
+
+What was done beyond what the brief asked for:
+
+- **A data audit**, not only cleaning: a shared e-mail between two customers, seven products whose descriptions
+  contradict their specs, and two conflicting phone numbers in the policy manual, each with a documented rule.
+- **Grounding in code:** every `R$` value and tracking code in a reply must come from a tool result, the manual
+  or the customer; otherwise the reply is regenerated once and then replaced by a safe message.
+- **An eval, not a demo:** trajectory and key-fact checks, critical and desirable levels, resuming across days
+  with a version lock, and re-scoring a saved result without a new model call.
+- **The model chosen by testing**, with the code independent of the provider (only `LLM_MODEL` changes).
+- **LGPD care:** the identity check runs against the customer of that order, a failed check answers the same
+  way whether the order exists or not, and e-mails and phones are masked in the panel and in the feedback file.
+- **Human escalation grounded in the manual:** the 24-business-hour window (policy 7.3) and "in doubt, consult
+  the manager" (section 10), so a borderline case is escalated before any verdict.
+- **"No information" is not "we don't do it":** the agent never denies or invents a service it has no data
+  about; it quotes the part the manual covers, says what is missing and offers an attendant.
+- **A look inside the agent:** the "Por dentro do agente" panel (tools, grounding, escalations) and 👍/👎
+  feedback on every answer.
+
+### The brief's suggested questions
+
+Each question suggested in the brief maps to a scenario of the eval, all passing on the reference model
+(the scenario wording is a shortened version of the same question).
+
+| Suggested question | Eval scenario | Reference model | Conversation |
+|---|---|---|---|
+| "Quais opções de violões disponíveis custando até R$1000?" | 1 | ✅ | |
+| "Qual o endereço da loja?" | 9b | ✅ | |
+| "Quanto custa o Takamine GD20?" | 2 | ✅ | |
+| "Me arrependi da minha compra, posso devolver meu pedido?" | 3 | ✅ | [01 – Return policy](examples/01-return-policy.md) |
+
 ## Contents
 
+- [At a glance](#at-a-glance)
 - [Quick start](#quick-start)
 - [How it works](#how-it-works)
 - [Streamlit UI](#streamlit-ui)
-
 - [Technical decisions](#technical-decisions)
 - [Data handling](#data-handling)
 - [Assumptions](#assumptions)
@@ -21,7 +67,6 @@ store's policy manual.
 - [Known limitations](#known-limitations)
 - [With more time](#with-more-time)
 - [Use of AI coding assistants](#use-of-ai-coding-assistants)
-
 
 ## Quick start
 
@@ -126,7 +171,6 @@ docs/                assumptions.md (every decision taken where the brief was si
 
 ## Streamlit UI
 
-
 `make ui` (or `streamlit run app.py`) opens a chat page over the same agent as the terminal.
 
 ![Streamlit chat on the reference model: order 8 after the identity check, with the "Por dentro do agente" panel open and the thumbs under the answer](docs/images/streamlit-order-status.png)
@@ -185,7 +229,7 @@ otherwise read `R$ 549,00 ... R$ 439,20` as a math formula.
 | Business math | Python (`pricing.py`), never the LLM | Discounts, PIX and installments must be exact and testable. |
 | Tool schemas | Pydantic arguments with enums (categories, string type) | Fewer malformed calls, and the model cannot invent a category. |
 | Model | Two providers, two roles, chosen only by `LLM_MODEL`: **`gemini-3.5-flash`** (Google AI Studio) as the reference and **`openai/gpt-oss-120b`** (Groq) for development. Temperature around 0.2. See [Why this model](#why-this-model). | Both are free and support tool calling. Gemini's daily quota is too small to iterate on a prompt, Groq's is large but slow; each does the job the other cannot. |
-| Rate limits (free tier) | Retry with exponential backoff (up to 4 retries, waiting 4, 8, 16 and 32 s, about a minute) for per-minute limits, 503/504 and network errors; **no retry for a daily quota**; a chain of reserve models; a polite message when everything is exhausted.  `make eval --pause SECONDS` spaces the scenarios for these limits. | Both free tiers throttle, in different ways (see [Free-tier quota](#free-tier-quota)). |
+| Rate limits (free tier) | Retry with exponential backoff (up to 4 retries, waiting 4, 8, 16 and 32 s, about a minute) for per-minute limits, 503/504 and network errors; **no retry for a daily quota**; a chain of reserve models; a polite message when everything is exhausted. `make eval --pause SECONDS` spaces the scenarios for these limits. | Both free tiers throttle, in different ways (see [Free-tier quota](#free-tier-quota)). |
 | Memory | LangGraph checkpointer, one `thread_id` per session | Multi-turn context ("and how much is that one?") and order verification across turns. In-memory by default. |
 | Interface | CLI first, plus a Streamlit chat | The focus is the agent. Both interfaces are thin layers over the same agent (`emporio_agent/chat.py` holds what they share). The Streamlit page escapes `$` so prices are not rendered as math, turns WhatsApp `*bold*` into markdown bold and lets the customer rate each answer with 👍/👎 (saved locally, personal data masked). |
 | Observability | Optional LangSmith tracing | Shows every tool call and routing decision when debugging. |
@@ -209,7 +253,7 @@ window big enough to hold the whole policy manual (about 14,000 characters, a fe
 | **Gemini (Google AI Studio)** | Yes, free tier with rate limits | **Yes** (models, tool calling and routing below) | **Chosen.** Fast, supports tool calling, large context, one API key. |
 | **Groq (hosted open-weight models)** | Yes, free tier with rate limits | **Yes** (smoke test and routing below) | **Chosen for development.** Large daily limit, very fast, but a small per-minute token budget. |
 | Local model (for example through Ollama) | Yes, runs on the reviewer's machine | **No** | Best for privacy (nothing leaves the machine), but it needs hardware and a model download, and small local models are generally less reliable at tool calling. Not chosen for a prototype that must run anywhere. |
-| Paid APIs | No | No | Ruled out by the "free and reproducible" requirement. |
+| Paid APIs | No | No | Ruled out to keep the project free to reproduce (a choice of this project, not a requirement of the brief). |
 
 **Two providers, two roles.** The free tier of Gemini allows only about 20 requests per day per model, which
 is not enough to iterate on a prompt, and the tier of Groq allows 1,000. So:
@@ -384,7 +428,7 @@ Issues found in the dataset and how they are handled:
 | Some order totals do not equal items × price (orders 3 and 20) | The stored `total_brl` is reported as the source of truth. |
 | Product 130 is `coming_soon` yet appears in orders 3 and 14 | Reported as stored. Noted as a data inconsistency. |
 | Customers with similar names | Identified only by e-mail or phone, never by name. |
-| Customers 11 and 43 share the e-mail `bruno.martins@jmail.com` | The identity check runs against the customer **of that order**. If the e-mail given belongs to more than one customer, the agent asks for the phone before releasing any data. Flagged as `email_is_shared`; the rule is enforced and tested in the tools slice. |
+| Customers 11 and 43 share the e-mail `bruno.martins@jmail.com` | The identity check runs against the customer **of that order**. If the e-mail given belongs to more than one customer, the agent asks for the phone before releasing any data. Flagged as `email_is_shared`; the rule is enforced and tested in the tools. |
 
 ## Assumptions
 
@@ -531,12 +575,10 @@ missed, not a wrong one, so it is reported here and not hidden by loosening the 
 
 ## Known limitations
 
-
-
 - On the reference model, scenarios 17 and 18 (guitar setup) miss a desirable point: the reply quotes policy 4.4 and
   never denies the service, but does not say that custom adjustments are not exchangeable (see [Results](#results)).
-- Memory is in-process by default, so a conversation does not survive a restart. The history is trimmed
-  to the latest 40 messages per conversation.
+- Memory is in-process by default, so a conversation does not survive a restart. That is a choice (see
+  [At a glance](#at-a-glance)). The history is trimmed to the latest 40 messages per conversation.
 - The free tier allows about 20 requests per day per model (see [Free-tier quota](#free-tier-quota)). The
   agent tries the exhausted main model first on every turn before falling to a reserve; a circuit breaker
   that remembers dead models would save that wasted call.
@@ -556,7 +598,6 @@ missed, not a wrong one, so it is reported here and not hidden by loosening the 
   run could word things differently; the saved transcripts let anyone read what was actually said.
 - **Only the reference model has a complete eval** (see [Evaluation](#evaluation)). The development model
   was iterated scenario by scenario, so its behavior is less well known than the reference model's.
-
 - **The typing-box and thumbs styling depend on Streamlit internals.** The CSS targets `data-testid="stChatInput"`,
   its first child and `stFeedbackButtonActive` (the selected 👍/👎), which are not a public API, so `streamlit` is pinned (`==1.66.1`) and an upgrade means
   checking the box by eye. The test harness does not render CSS, so only the page in a browser shows it.
@@ -587,15 +628,27 @@ missed, not a wrong one, so it is reported here and not hidden by loosening the 
 - Vector RAG with re-ranking if the policy base grows.
 - A custom LangGraph `StateGraph` with explicit nodes (classify, retrieve, answer, validate).
 - LLM-as-judge evaluation on top of the trajectory and key-fact checks.
+- A statistical eval: N runs per scenario instead of one, to measure how often each check passes.
+- Prompt versioning with the eval as a gate in CI, so a prompt change that breaks a critical check
+  cannot be merged.
+- A semantic cache for frequent questions (hours, address, return policy), to save requests and latency.
 - A dashboard over the 👍/👎 votes, and a way to turn poorly rated answers (the file already keeps question,
   reply and tools) into new eval scenarios.
 - Check the "does not connect the information" cases on the reference model and, if needed, add an index of
   the services the manual mentions in passing (for example custom adjustments in section 4.4), so a question
   about a service finds them.
 - FastAPI, Docker and a WhatsApp integration.
-- PostgreSQL instead of SQLite, and persistent per-customer memory across sessions.
+- PostgreSQL instead of SQLite.
+- Persistent memory per customer across sessions, with the customer's consent (LGPD). Today the history
+  lives only during the conversation, by choice.
 - A cart with several products, with PIX eligibility decided per item.
 - PII redaction in logs and a real ticketing integration for escalations.
+- **Observability and cost control (Prometheus + Grafana).** Metrics per model: tokens and requests,
+  estimated cost in R$ per day and per conversation, latency p50 and p95, provider error rate, grounding
+  retry and safe-message rate, escalation rate and 👎 rate. Alerts: the daily quota and the monthly budget
+  (in reais) at 80% and when exceeded, with a projection of the month; a provider down or a high p95
+  latency; a spike in grounding failures or 👎. Plus an automatic switch to the reserve model and a
+  circuit breaker that remembers dead models.
 - Provider prompt caching of the static prefix (persona plus full policy). It is not controllable on the
   free tier, so it is out of scope for now.
 
