@@ -10,6 +10,7 @@ A chosen model replaces ``LLM_MODEL`` and drops the reserve models, so nothing e
 import os
 import sys
 import uuid
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
@@ -25,6 +26,7 @@ from emporio_agent.chat import (
     startup_failure_message,
     to_markdown,
 )
+from emporio_agent.feedback import Feedback, rating_from_widget, save_feedback
 
 WELCOME = (
     "Oi! Sou o assistente virtual da Empório da Música 🎸 Posso ajudar com produtos, pedidos, "
@@ -43,14 +45,14 @@ _GROUNDING_LABELS = {
 
 
 @st.cache_resource(show_spinner="Preparando o atendimento...")
-def load_agent(override: str | None) -> tuple[Any, str]:
-    """Build the agent once per server process and name the model it uses.
+def load_agent(override: str | None) -> tuple[Any, str, Path]:
+    """Build the agent once per server process; name the model and the file for the votes.
 
     Conversations are told apart by thread id, so one agent serves every browser session.
     """
     load_dotenv()
     settings = app_settings(os.environ, override)
-    return build_agent_from_settings(settings), settings.llm_model
+    return build_agent_from_settings(settings), settings.llm_model, settings.feedback_path
 
 
 def chat_input_css(color: str) -> str:
@@ -76,6 +78,44 @@ def new_conversation() -> None:
     st.session_state.thread_id = uuid.uuid4().hex
     st.session_state.messages = [("assistant", WELCOME)]
     st.session_state.turns = []
+    st.session_state.questions = []
+
+
+def record_vote(turn_index: int, path: Path) -> None:
+    """Save the vote (and comment) on an answer; runs when the customer clicks a thumb or types.
+
+    A 👍 or a vote taken back drops any comment; the last vote on an answer wins.
+    """
+    key = f"feedback-{st.session_state.thread_id}-{turn_index}"
+    rating = rating_from_widget(st.session_state.get(key))
+    turn: Turn = st.session_state.turns[turn_index]
+    comment = st.session_state.get(f"{key}-comment", "") if rating == "down" else ""
+    save_feedback(
+        path,
+        Feedback(
+            thread_id=st.session_state.thread_id,
+            turn=turn_index + 1,
+            question=st.session_state.questions[turn_index],
+            reply=turn.reply,
+            tools=tuple(call.name for call in turn.tools),
+            rating=rating,
+            comment=comment.strip(),
+        ),
+    )
+
+
+def feedback_controls(turn_index: int, path: Path) -> None:
+    """👍/👎 under an assistant answer, and an optional comment box after a 👎."""
+    key = f"feedback-{st.session_state.thread_id}-{turn_index}"
+    st.feedback("thumbs", key=key, on_change=record_vote, args=(turn_index, path))
+    if st.session_state.get(key) == 0:
+        st.text_input(
+            "O que deu errado? (opcional)",
+            key=f"{key}-comment",
+            max_chars=300,
+            on_change=record_vote,
+            args=(turn_index, path),
+        )
 
 
 def describe(turn: Turn) -> str:
@@ -125,8 +165,9 @@ def main() -> None:
     try:
         if "agent" in st.session_state:  # a ready agent (tests inject one)
             agent, model = st.session_state["agent"], st.session_state.get("model", "?")
+            feedback_path = st.session_state.get("feedback_path")
         else:
-            agent, model = load_agent(model_override(sys.argv[1:], os.environ))
+            agent, model, feedback_path = load_agent(model_override(sys.argv[1:], os.environ))
     except Exception as error:  # a system problem, shown as a warning and not as a chat message
         st.warning(startup_failure_message(error))
         st.stop()
@@ -146,12 +187,16 @@ def main() -> None:
         st.divider()
         panel = st.expander("Por dentro do agente")
 
+    asked = -1  # index of the customer message the next assistant answer replies to
     for role, text in st.session_state.messages:
         if role == "warning":  # system messages (quota, errors) are not the assistant talking
             st.warning(text)
         else:
+            asked += role == "user"
             with st.chat_message(role):
                 st.markdown(to_markdown(text))
+                if role == "assistant" and asked >= 0 and feedback_path:  # not on the welcome
+                    feedback_controls(asked, feedback_path)
 
     if (
         prompt := st.chat_input(
@@ -164,14 +209,17 @@ def main() -> None:
             st.markdown(to_markdown(prompt))
         with st.spinner("Consultando..."):
             turn = ask(agent, st.session_state.thread_id, prompt)
+        st.session_state.turns.append(turn)
+        st.session_state.questions.append(prompt)
         if turn.error:
             st.warning(turn.error)
             st.session_state.messages.append(("warning", turn.error))
         else:
             with st.chat_message("assistant"):
                 st.markdown(to_markdown(turn.reply))
+                if feedback_path:
+                    feedback_controls(len(st.session_state.turns) - 1, feedback_path)
             st.session_state.messages.append(("assistant", turn.reply))
-        st.session_state.turns.append(turn)
 
     render_panel(panel, model)
 

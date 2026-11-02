@@ -118,6 +118,12 @@ sidebar:
   the grounding outcome (approved, retry, or safe message) and the cases registered for a person, plus one
   line per turn of the conversation. It uses what the agent already exposes. E-mails and phones are masked
   (`an***@coldmail.com`, `(67) 9****-7821`) before they reach the panel.
+- **👍/👎 under every assistant answer** (not under the greeting or the system warnings). After a 👎 an optional
+  box asks what went wrong. Votes go to a local, git-ignored `var/feedback.jsonl` (`FEEDBACK_PATH`), one
+  record per answer with the time, conversation, turn, question, reply, tools called, rating and comment.
+  Voting again replaces the record (the last vote wins) and clicking the same thumb again removes it.
+  E-mails and phones are masked before saving, the comment included (LGPD). Nothing in the prompt or the
+  tools changes, and the file is not sent anywhere.
 - a spinner while the agent answers, and a **New conversation** block (a green button, with a note that the
   current history will be erased) below the examples.
 - **System messages are warnings, not assistant speech.** A model failure (daily quota, invalid key) or a
@@ -151,7 +157,7 @@ otherwise read `R$ 549,00 ... R$ 439,20` as a math formula.
 | Model | Two providers, two roles, chosen only by `LLM_MODEL`: **`gemini-3.5-flash`** (Google AI Studio) as the reference and **`openai/gpt-oss-120b`** (Groq) for development. Temperature around 0.2. See [Why this model](#why-this-model). | Both are free and support tool calling. Gemini's daily quota is too small to iterate on a prompt, Groq's is large but slow; each does the job the other cannot. |
 | Rate limits (free tier) | Retry with exponential backoff (up to 4 retries, waiting 4, 8, 16 and 32 s, about a minute) for per-minute limits, 503/504 and network errors; **no retry for a daily quota**; a chain of reserve models; a polite message when everything is exhausted. A configurable pause between scenarios in `make eval` is still planned (slice 8). | Both free tiers throttle, in different ways (see [Free-tier quota](#free-tier-quota)). |
 | Memory | LangGraph checkpointer, one `thread_id` per session | Multi-turn context ("and how much is that one?") and order verification across turns. In-memory by default. |
-| Interface | CLI first, plus a Streamlit chat | The focus is the agent. Both interfaces are thin layers over the same agent (`emporio_agent/chat.py` holds what they share). The Streamlit page escapes `$` so prices are not rendered as math, and turns WhatsApp `*bold*` into markdown bold. |
+| Interface | CLI first, plus a Streamlit chat | The focus is the agent. Both interfaces are thin layers over the same agent (`emporio_agent/chat.py` holds what they share). The Streamlit page escapes `$` so prices are not rendered as math, turns WhatsApp `*bold*` into markdown bold and lets the customer rate each answer with 👍/👎 (saved locally, personal data masked). |
 | Observability | Optional LangSmith tracing | Shows every tool call and routing decision when debugging. |
 
 > **Privacy note (LGPD care).** On the free tier, Google may use the content sent to the API to improve its
@@ -535,6 +541,8 @@ missed, not a wrong one, so it is reported here and not hidden by loosening the 
 - Vector RAG with re-ranking if the policy base grows.
 - A custom LangGraph `StateGraph` with explicit nodes (classify, retrieve, answer, validate).
 - LLM-as-judge evaluation on top of the trajectory and key-fact checks.
+- A dashboard over the 👍/👎 votes, and a way to turn poorly rated answers (the file already keeps question,
+  reply and tools) into new eval scenarios.
 - Check the "does not connect the information" cases on the reference model and, if needed, add an index of
   the services the manual mentions in passing (for example custom adjustments in section 4.4), so a question
   about a service finds them.

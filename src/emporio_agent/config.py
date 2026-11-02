@@ -24,6 +24,7 @@ class Settings:
         policy_pdf: The policy manual.
         db_path: SQLite file rebuilt from the CSVs (git-ignored).
         escalations_path: JSON Lines file for human escalations (git-ignored).
+        feedback_path: JSON Lines file for the 👍/👎 votes of the Streamlit UI (git-ignored).
     """
 
     llm_model: str
@@ -34,6 +35,7 @@ class Settings:
     policy_pdf: Path
     db_path: Path
     escalations_path: Path
+    feedback_path: Path
 
 
 def _path(env: Mapping[str, str], name: str, default: str, root: Path) -> Path:
@@ -84,4 +86,5 @@ def load_settings(env: Mapping[str, str], root: Path = PROJECT_ROOT) -> Settings
         policy_pdf=data_dir / "politicas_da_loja.pdf",
         db_path=_path(env, "DB_PATH", "var/emporio.db", root),
         escalations_path=_path(env, "ESCALATIONS_PATH", "var/escalations.jsonl", root),
+        feedback_path=_path(env, "FEEDBACK_PATH", "var/feedback.jsonl", root),
     )

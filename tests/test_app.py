@@ -1,5 +1,6 @@
 """Tests for the Streamlit chat UI, driven with Streamlit's own test harness (no real model)."""
 
+import json
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ def _app(model: ScriptedChatModel, db_path: Path, policy: str, tmp_path: Path) -
     at = AppTest.from_file(APP, default_timeout=30)
     at.session_state["agent"] = make_agent(model, db_path, policy, tmp_path)
     at.session_state["model"] = "fake:model"
+    at.session_state["feedback_path"] = tmp_path / "feedback.jsonl"
     return at.run()
 
 
@@ -382,3 +384,108 @@ def test_streamlit_is_pinned_because_the_css_uses_its_internal_selectors() -> No
     pins = [line for line in lines if line.strip().startswith("streamlit")]
     assert len(pins) == 1 and "==" in pins[0], pins
     assert pins[0].split("==")[1].split()[0] == version("streamlit")
+
+
+# --- 👍/👎 feedback ----------------------------------------------------------------------------
+
+
+def _votes(tmp_path: Path) -> list[dict[str, Any]]:
+    path = tmp_path / "feedback.jsonl"
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_thumbs_go_under_the_assistants_answers_and_not_under_the_welcome_or_a_warning(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """Only real answers are rated: not the greeting, not a system warning about the quota."""
+    quota = GoogleRateLimitError("Generate content requests per day limit exceeded on Free Tier.")
+    model = ScriptedChatModel(script=[AIMessage(content="r1"), quota, AIMessage(content="r3")])
+    at = _app(model, db_path, policy, tmp_path)
+    assert len(at.feedback) == 0  # welcome only
+    at.chat_input[0].set_value("um").run()
+    assert len(at.feedback) == 1
+    at.chat_input[0].set_value("dois").run()
+    assert len(at.warning) == 1 and len(at.feedback) == 1  # the warning has no thumbs
+    at.chat_input[0].set_value("três").run()
+    assert len(at.feedback) == 2 and not at.exception
+
+
+def test_a_thumbs_up_saves_the_question_the_reply_and_the_tools(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """The vote carries enough context to be read later without the conversation."""
+    model = ScriptedChatModel(
+        script=[
+            tool_call("get_product_details", {"product_name": "Takamine GD20"}),
+            AIMessage(content="O Takamine GD20 sai por R$ 2.199,00."),
+        ]
+    )
+    at = _app(model, db_path, policy, tmp_path)
+    at.chat_input[0].set_value("Quanto custa o Takamine GD20?").run()
+    at.feedback[0].set_value(1).run()
+    (vote,) = _votes(tmp_path)
+    assert (vote["rating"], vote["turn"], vote["comment"]) == ("up", 1, "")
+    assert vote["question"] == "Quanto custa o Takamine GD20?"
+    assert vote["reply"] == "O Takamine GD20 sai por R$ 2.199,00."
+    assert vote["tools"] == ["get_product_details"] and len(vote["thread_id"]) == 32
+
+
+def test_a_thumbs_down_asks_for_an_optional_comment_and_saves_it_masked(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """The box only appears after a 👎; the vote counts without a comment; the comment is masked."""
+    at = _app(ScriptedChatModel(script=[AIMessage(content="r1")]), db_path, policy, tmp_path)
+    at.chat_input[0].set_value("Oi").run()
+    assert len(at.text_input) == 0  # nothing to explain yet
+    at.feedback[0].set_value(0).run()
+    assert [v["rating"] for v in _votes(tmp_path)] == ["down"]  # saved even with no comment
+    assert len(at.text_input) == 1 and "opcional" in at.text_input[0].label
+    at.text_input[0].set_value("Me liguem em (67) 99654-7821").run()
+    (vote,) = _votes(tmp_path)
+    assert vote["rating"] == "down" and vote["comment"] == "Me liguem em (67) 9****-7821"
+
+
+def test_the_last_vote_wins_and_changing_to_a_thumbs_up_drops_the_comment(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """One record per answer: 👎 with a comment, then 👍, leaves a single 👍 with no comment."""
+    at = _app(ScriptedChatModel(script=[AIMessage(content="r1")]), db_path, policy, tmp_path)
+    at.chat_input[0].set_value("Oi").run()
+    at.feedback[0].set_value(0).run()
+    at.text_input[0].set_value("não gostei").run()
+    at.feedback[0].set_value(1).run()
+    (vote,) = _votes(tmp_path)
+    assert vote["rating"] == "up" and vote["comment"] == ""
+    assert len(at.text_input) == 0
+
+
+def test_each_answer_has_its_own_vote_and_a_warning_still_counts_as_a_turn(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """The vote on the third message is turn 3 even though the second one failed."""
+    quota = GoogleRateLimitError("Generate content requests per day limit exceeded on Free Tier.")
+    model = ScriptedChatModel(script=[AIMessage(content="r1"), quota, AIMessage(content="r3")])
+    at = _app(model, db_path, policy, tmp_path)
+    for text in ("um", "dois", "três"):
+        at.chat_input[0].set_value(text).run()
+    at.feedback[0].set_value(1).run()
+    at.feedback[1].set_value(0).run()
+    assert [(v["turn"], v["question"], v["rating"]) for v in _votes(tmp_path)] == [
+        (1, "um", "up"),
+        (3, "três", "down"),
+    ]
+
+
+def test_a_new_conversation_starts_without_votes_on_screen(
+    db_path: Path, policy: str, tmp_path: Path
+) -> None:
+    """The thumbs belong to the conversation: after "Nova conversa" the screen is clean."""
+    at = _app(ScriptedChatModel(script=[AIMessage(content="r1")]), db_path, policy, tmp_path)
+    at.chat_input[0].set_value("Oi").run()
+    at.feedback[0].set_value(1).run()
+    labels = [b.label for b in at.sidebar.button]
+    at.sidebar.button[labels.index("Nova conversa")].click().run()
+    assert len(at.feedback) == 0 and not at.exception
+    assert len(_votes(tmp_path)) == 1  # the earlier vote is kept

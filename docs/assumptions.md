@@ -328,3 +328,13 @@ with uniform keys per category.
   fallback, so the config stays the single source.
 - **Welcome and placeholder are UI texts, not the prompt.** They are fixed strings in `app.py`; the welcome
   tells the customer where to type and that the examples are in the sidebar.
+- **Customer feedback (👍/👎) is local and masked.** `st.feedback("thumbs")` under each assistant answer
+  (never under the greeting or a system warning) writes to `var/feedback.jsonl` (`FEEDBACK_PATH`, git-ignored
+  like the rest of `var/`). E-mails and phones are masked with `mask_pii` in the question, the reply and the
+  comment before anything is written, so the file holds no raw personal data (LGPD). It is a local file: it is
+  not sent anywhere and there is no retention policy beyond deleting it. One record per answer, keyed by
+  conversation and turn; the last vote wins and taking the vote back removes the record. The comment is
+  optional, asked only after a 👎 and cut at 300 characters. The file is rewritten whole on each vote under a
+  lock, which is fine for one process and a demo, not for several servers. The turn number counts every
+  customer message, including one that only got a system warning. Nothing about this reaches the agent or the
+  prompt, so it does not touch the frozen version of the evals.

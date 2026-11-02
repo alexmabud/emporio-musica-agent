@@ -18,6 +18,7 @@ def test_defaults_and_paths_are_resolved_against_the_project_root() -> None:
     assert settings.policy_pdf == ROOT / "data" / "politicas_da_loja.pdf"
     assert settings.db_path == ROOT / "var" / "emporio.db"
     assert settings.escalations_path == ROOT / "var" / "escalations.jsonl"
+    assert settings.feedback_path == ROOT / "var" / "feedback.jsonl"
 
 
 def test_values_from_the_environment_override_the_defaults() -> None:
@@ -27,11 +28,13 @@ def test_values_from_the_environment_override_the_defaults() -> None:
         "LLM_TEMPERATURE": "0.7",
         "DB_PATH": "build/store.db",
         "ESCALATIONS_PATH": "/tmp/cases.jsonl",
+        "FEEDBACK_PATH": "ratings/votes.jsonl",
     }
     settings = load_settings(env, root=ROOT)
     assert settings.llm_temperature == 0.7
     assert settings.db_path == ROOT / "build" / "store.db"
     assert settings.escalations_path == Path("/tmp/cases.jsonl")
+    assert settings.feedback_path == ROOT / "ratings" / "votes.jsonl"
 
 
 @pytest.mark.parametrize("env", [{}, {"LLM_MODEL": "  "}])

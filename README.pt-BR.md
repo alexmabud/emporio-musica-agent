@@ -125,6 +125,12 @@ lateral:
   tentativa ou mensagem segura) e os casos registrados para uma pessoa, além de uma linha por turno da
   conversa. Usa o que o agente já expõe. E-mails e telefones são mascarados (`an***@coldmail.com`,
   `(67) 9****-7821`) antes de chegarem ao painel.
+- **👍/👎 embaixo de cada resposta do assistente** (não na saudação nem nos avisos do sistema). Depois de um
+  👎, uma caixa opcional pergunta o que deu errado. Os votos vão para um `var/feedback.jsonl` local, ignorado
+  pelo git (`FEEDBACK_PATH`), com um registro por resposta: horário, conversa, turno, pergunta, resposta,
+  ferramentas chamadas, nota e comentário. Votar de novo substitui o registro (vale o último voto) e clicar no
+  mesmo polegar outra vez o remove. E-mails e telefones são mascarados antes de gravar, comentário incluído
+  (LGPD). Nada muda no prompt nem nas ferramentas, e o arquivo não é enviado a lugar nenhum.
 - um indicador de carregamento enquanto o agente responde e um bloco **Nova conversa** (um botão verde, com
   um aviso de que o histórico atual será apagado) abaixo dos exemplos.
 - **Mensagens de sistema são avisos, não fala do assistente.** Uma falha do modelo (cota diária, chave
@@ -159,7 +165,7 @@ leria `R$ 549,00 ... R$ 439,20` como uma fórmula matemática.
 | Modelo | Dois provedores, dois papéis, escolhidos apenas por `LLM_MODEL`: **`gemini-3.5-flash`** (Google AI Studio) como referência e **`openai/gpt-oss-120b`** (Groq) para desenvolvimento. Temperatura em torno de 0,2. Veja [Por que este modelo](#por-que-este-modelo). | Os dois são gratuitos e suportam chamada de ferramentas. A cota diária do Gemini é pequena demais para iterar num prompt; a da Groq é grande, mas lenta; cada um faz o trabalho que o outro não consegue. |
 | Limites de taxa (plano gratuito) | Nova tentativa com recuo exponencial (até 4 tentativas, esperando 4, 8, 16 e 32 s, cerca de um minuto) para limites por minuto, 503/504 e erros de rede; **sem nova tentativa para cota diária**; uma cadeia de modelos reserva; uma mensagem educada quando tudo se esgota. Uma pausa configurável entre cenários no `make eval` ainda está planejada (slice 8). | Os dois planos gratuitos limitam o uso, de maneiras diferentes (veja [Cota do plano gratuito](#cota-do-plano-gratuito)). |
 | Memória | Checkpointer do LangGraph, um `thread_id` por sessão | Contexto de várias mensagens ("e quanto custa esse?") e verificação de pedido ao longo dos turnos. Em memória por padrão. |
-| Interface | Primeiro a CLI, mais um chat em Streamlit | O foco é o agente. As duas interfaces são camadas finas sobre o mesmo agente (`emporio_agent/chat.py` guarda o que elas compartilham). A página Streamlit escapa o `$` para que os preços não sejam renderizados como matemática e transforma o `*negrito*` do WhatsApp em negrito de markdown. |
+| Interface | Primeiro a CLI, mais um chat em Streamlit | O foco é o agente. As duas interfaces são camadas finas sobre o mesmo agente (`emporio_agent/chat.py` guarda o que elas compartilham). A página Streamlit escapa o `$` para que os preços não sejam renderizados como matemática transforma o `*negrito*` do WhatsApp em negrito de markdown e deixa o cliente avaliar cada resposta com 👍/👎 (gravado localmente, dados pessoais mascarados). |
 | Observabilidade | Rastreamento opcional com LangSmith | Mostra cada chamada de ferramenta e cada decisão de roteamento ao depurar. |
 
 > **Nota de privacidade (cuidado com a LGPD).** No plano gratuito, o Google pode usar o conteúdo enviado à API
@@ -566,6 +572,8 @@ não uma resposta errada; por isso fica registrada aqui, e a verificação não 
 - RAG vetorial com reordenação se a base de políticas crescer.
 - Um `StateGraph` próprio do LangGraph com nós explícitos (classificar, recuperar, responder, validar).
 - Avaliação com LLM como juiz por cima das verificações de trajetória e fatos-chave.
+- Um painel sobre os votos 👍/👎 e um jeito de transformar respostas mal avaliadas (o arquivo já guarda pergunta,
+  resposta e ferramentas) em novos cenários de avaliação.
 - Conferir no modelo de referência os casos de "não conecta a informação" e, se preciso, acrescentar um índice
   dos serviços que o manual menciona de passagem (por exemplo, ajustes sob encomenda na seção 4.4), para que
   uma pergunta sobre um serviço os encontre.
