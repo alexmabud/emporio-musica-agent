@@ -5,7 +5,7 @@ behavior), **desirable** ones are reported apart (a better answer, but not a fai
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -81,6 +81,23 @@ class Check:
     test: Callable[[Run], bool]
 
 
+@dataclass(frozen=True)
+class CheckResult:
+    """The outcome of one check.
+
+    Attributes:
+        name: What the check verifies.
+        level: ``critical`` or ``desirable``.
+        passed: Whether it held.
+        error: Why the check itself crashed, if it did (counts as not passed).
+    """
+
+    name: str
+    level: Level
+    passed: bool
+    error: str | None = None
+
+
 def critical(name: str, test: Callable[[Run], bool]) -> Check:
     """A check whose failure fails the scenario."""
     return Check(name, "critical", test)
@@ -151,3 +168,19 @@ def escalation_says(pattern: str) -> Callable[[Run], bool]:
 def escalation_lacks(pattern: str) -> Callable[[Run], bool]:
     """No registered case has a summary that matches the regular expression."""
     return lambda run: not escalation_says(pattern)(run)
+
+
+def evaluate(run: Run, checks: Sequence[Check]) -> list[CheckResult]:
+    """Score a run. A check that crashes counts as failed and never stops the others."""
+    results = []
+    for check in checks:
+        try:
+            results.append(CheckResult(check.name, check.level, bool(check.test(run))))
+        except Exception as error:
+            results.append(CheckResult(check.name, check.level, False, repr(error)))
+    return results
+
+
+def is_passed(results: Sequence[CheckResult]) -> bool:
+    """A scenario passes when every critical check holds (desirable ones never decide)."""
+    return all(r.passed for r in results if r.level == "critical")

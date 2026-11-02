@@ -9,6 +9,9 @@ A complete eval may not fit one day of a free tier, so progress is saved after e
 ``<model-slug>-partial.json`` and ``--resume`` continues it, as long as the prompt, the tool
 schemas and the model are exactly the same (``evals.version``). When every scenario is done the
 partial file becomes the model's full result.
+
+``--rescore`` scores a saved complete result again with the current checks, from the transcripts
+already saved and without calling the model (``evals.rescore``).
 """
 
 import argparse
@@ -17,7 +20,6 @@ import os
 import tempfile
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -32,30 +34,20 @@ from emporio_agent.data_loader import build_database
 from emporio_agent.policies import load_policy_text
 from emporio_agent.tools import build_tools
 from emporio_agent.validation import GroundingEvents
-from evals.checks import Check, Level, Run, TurnResult
+from evals.checks import CheckResult, Run, TurnResult, evaluate, is_passed
+from evals.rescore import (
+    format_comparison,
+    rescore_document,
+    rescore_record,
+    summary_line,
+    totals,
+)
 from evals.scenarios import SCENARIOS, Scenario
-from evals.version import compute_version, differences
+from evals.version import checks_version, compute_version, differences
 
 RESULTS_DIR = PROJECT_ROOT / "evals" / "results"
 
 AgentFactory = Callable[[Path], Any]
-
-
-@dataclass(frozen=True)
-class CheckResult:
-    """The outcome of one check.
-
-    Attributes:
-        name: What the check verifies.
-        level: ``critical`` or ``desirable``.
-        passed: Whether it held.
-        error: Why the check itself crashed, if it did (counts as not passed).
-    """
-
-    name: str
-    level: Level
-    passed: bool
-    error: str | None = None
 
 
 class CallCounter(BaseCallbackHandler):
@@ -88,17 +80,6 @@ def model_slug(spec: str) -> str:
 def fallback_specs(configured: Sequence[str], *, with_fallbacks: bool) -> tuple[str, ...]:
     """Reserve models to use: none by default, so every result belongs to a single model."""
     return tuple(configured) if with_fallbacks else ()
-
-
-def evaluate(run: Run, checks: Sequence[Check]) -> list[CheckResult]:
-    """Score a run. A check that crashes counts as failed and never stops the others."""
-    results = []
-    for check in checks:
-        try:
-            results.append(CheckResult(check.name, check.level, bool(check.test(run))))
-        except Exception as error:
-            results.append(CheckResult(check.name, check.level, False, repr(error)))
-    return results
 
 
 def _tools_called_in_turn(messages: list[Any]) -> tuple[str, ...]:
@@ -186,7 +167,7 @@ def _scenario_record(
     stamp: str,
 ) -> dict[str, Any]:
     """The JSON-ready record of one scenario."""
-    passed = error is None and all(r.passed for r in results if r.level == "critical")
+    passed = error is None and is_passed(results)
     record: dict[str, Any] = {
         "id": scenario.id,
         "title": scenario.title,
@@ -215,21 +196,6 @@ def _scenario_record(
         record["error"] = error
         record["checks"] = []
     return record
-
-
-def _totals(records: list[dict[str, Any]]) -> dict[str, int]:
-    checks = [c for record in records for c in record["checks"]]
-    desirable = [c for c in checks if c["level"] == "desirable"]
-    return {
-        "scenarios_run": len(records),
-        "scenarios_passed": sum(1 for record in records if record["passed"]),
-        "model_calls": sum(record.get("model_calls", 0) for record in records),
-        "failed_calls": sum(record.get("failed_calls", 0) for record in records),
-        "grounding_retries": sum(record.get("grounding_retries", 0) for record in records),
-        "safe_messages": sum(record.get("safe_messages", 0) for record in records),
-        "desirable_passed": sum(1 for c in desirable if c["passed"]),
-        "desirable_total": len(desirable),
-    }
 
 
 def format_table(records: list[dict[str, Any]]) -> str:
@@ -319,8 +285,16 @@ def _parse(argv: Sequence[str] | None) -> argparse.Namespace:
         action="store_true",
         help="discard the saved partial run and begin a new round on the current version",
     )
+    parser.add_argument(
+        "--rescore",
+        action="store_true",
+        help="score the saved complete result again with the current checks, without calling "
+        "the model (the transcripts are kept; the changes are logged in the file)",
+    )
     parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR)
     args = parser.parse_args(argv)
+    if args.rescore and (args.only or args.resume or args.restart):
+        parser.error("--rescore only re-scores the saved result; no other run option applies")
     if args.only and (args.resume or args.restart):
         parser.error("--only runs a quick subset and cannot be combined with --resume/--restart")
     if args.resume and args.restart:
@@ -365,6 +339,37 @@ def _load_progress(
     return saved
 
 
+def _rescore(args: argparse.Namespace, scenarios: Sequence[Scenario]) -> int:
+    """Score the model's saved complete result again with the current checks; print before/after."""
+    spec = args.model
+    if spec is None:
+        load_dotenv()
+        try:
+            spec = load_settings(os.environ).llm_model
+        except ConfigError as error:
+            raise SystemExit(f"Configuration error: {error}") from error
+    path = (
+        args.results_dir
+        / f"{model_slug(spec)}{'-with-fallbacks' if args.with_fallbacks else ''}.json"
+    )
+    if not path.exists():
+        raise SystemExit(f"Nothing to re-score: there is no complete result in {path}")
+    before = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        after = rescore_document(
+            before, scenarios, today=date.today().isoformat(), checks_sha=checks_version()
+        )
+    except ValueError as error:
+        raise SystemExit(f"Cannot re-score {path.name}: {error}. Run the eval again.") from error
+    if after is before:
+        print(f"{path.name} was already scored by these checks; nothing changed.")
+        return 0
+    _write_json(path, after)
+    print(format_comparison(before, after))
+    print(f"\nSaved to {path}")
+    return 0
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -396,6 +401,8 @@ def main(
     selected = [s for s in everything if not wanted or s.id in wanted]
 
     settings: Settings | None = None
+    if args.rescore:
+        return _rescore(args, everything)
     if agent_factory is None:
         load_dotenv()
         try:
@@ -419,7 +426,12 @@ def main(
 
     saved = None if subset else _load_progress(partial_path, args, version)
     texts = {s.id: list(s.messages) for s in selected}
-    kept = [r for r in (saved["scenarios"] if saved else []) if texts.get(r["id"]) == r["messages"]]
+    by_id = {s.id: s for s in everything}
+    kept = [
+        rescore_record(by_id[r["id"]], r)  # kept results are scored by the checks of this run
+        for r in (saved["scenarios"] if saved else [])
+        if texts.get(r["id"]) == r["messages"]
+    ]
     sessions: list[dict[str, Any]] = list(saved["sessions"]) if saved else []
     records: list[dict[str, Any]] = list(kept)
     order = {s.id: position for position, s in enumerate(everything)}
@@ -427,24 +439,20 @@ def main(
 
     def document(*, partial: bool, aborted: bool) -> dict[str, Any]:
         ordered = sorted(records, key=lambda r: order[r["id"]])
-        totals = _totals(ordered)
+        counts = totals(ordered)
         remaining = [s.id for s in selected if s.id not in {r["id"] for r in records}]
-        summary = (
-            f"`{model_spec}` · {stamp} · critical {totals['scenarios_passed']}/"
-            f"{totals['scenarios_run']} scenarios passed · desirable "
-            f"{totals['desirable_passed']}/{totals['desirable_total']} checks · "
-            f"{totals['model_calls']} model calls"
-        )
+        summary = summary_line(model_spec, stamp, counts)
         return {
             "model": model_spec,
             "date": stamp,
             "fingerprint": version,
             "with_fallbacks": args.with_fallbacks,
+            "checks_sha": checks_version(),
             "partial": partial,
             "aborted": aborted,
             "remaining": remaining,
             "summary": summary,
-            "totals": totals,
+            "totals": counts,
             "sessions": sessions,
             "scenarios": ordered,
         }

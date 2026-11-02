@@ -10,6 +10,7 @@ import json
 import re
 from collections.abc import Sequence
 from datetime import datetime
+from pathlib import Path
 
 from langchain_core.tools import BaseTool
 
@@ -19,6 +20,8 @@ from emporio_agent.prompts import build_system_prompt
 # Any fixed moment will do: the section it affects is removed below.
 _REFERENCE_MOMENT = datetime(2026, 1, 5, 10, 0, tzinfo=STORE_TIMEZONE)
 _MOMENT_SECTION = re.compile(r"## Agora\n.*?\n\n(?=## )", re.DOTALL)
+
+_CHECK_FILES = ("checks.py", "scenarios.py")
 
 PARTS = {"model": "model", "prompt_sha": "prompt", "tools_sha": "tool schemas"}
 
@@ -58,3 +61,13 @@ def compute_version(policy_text: str, tools: Sequence[BaseTool], model_spec: str
 def differences(saved: dict[str, str], current: dict[str, str]) -> list[str]:
     """Names of the parts (model, prompt, tool schemas) that differ between two versions."""
     return [name for key, name in PARTS.items() if saved.get(key) != current.get(key)]
+
+
+def checks_version() -> str:
+    """Short hash of the scoring rules: the checks and the scenarios that use them.
+
+    A result records it, so it says which rules produced its verdicts. Changing the rules does not
+    invalidate the saved transcripts; ``--rescore`` scores them again without calling the model.
+    """
+    here = Path(__file__).parent
+    return _sha("\n".join((here / name).read_text(encoding="utf-8") for name in _CHECK_FILES))

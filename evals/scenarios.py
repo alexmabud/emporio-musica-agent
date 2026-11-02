@@ -47,7 +47,14 @@ _AFFIRMS_PARKING = (
     r"\s+(um\s+|o\s+|nosso\s+)?(\w+\s+)?estacionamento"
 )
 _OFFERS_A_PERSON = r"atendente|equipe|3321-4500|gerência"
-_DEADLINE_TALK = r"7 dias|sete dias|dentro do prazo|fora do prazo|no prazo|passou do prazo"
+# A verdict on the exchange deadline ("fora do prazo", "você está no prazo de devolução", "o prazo
+# já acabou"). "no prazo de até 24 horas úteis" is the answer window of policy 7.3, not a verdict.
+_DEADLINE_TALK = (
+    r"\b(7|sete) dias"
+    r"|(dentro|fora) d[oa] prazo|passou d[oa] prazo"
+    r"|\bno prazo(?!\s+(de\s+)?(at[ée]\s+)?\W*\d+\s+horas)"
+    r"|\bprazo\b[^.!?\n]{0,40}\b(acabou|venceu|expirou|esgotou|encerrou|terminou|passou)"
+)
 
 
 @dataclass(frozen=True)

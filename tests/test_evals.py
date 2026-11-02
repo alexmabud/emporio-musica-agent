@@ -147,6 +147,40 @@ def test_scenario_13_fails_when_the_reply_or_the_record_prejudge_the_deadline() 
     assert len(failed) >= 2
 
 
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "A gerência entrará em contato no prazo de até 24 horas úteis.",
+        # The real transcript of the Gemini run, markdown asterisks included:
+        "Como o prazo de troca/devolução conta a partir do recebimento do produto, a equipe vai"
+        " confirmar todos os detalhes com você.\n\nUm de nossos atendentes entrará em contato"
+        " no prazo de até *24 horas úteis*. \n\nSe quiser já me adiantar o número do pedido...",
+        "Um atendente retorna no prazo de 24 horas úteis.",
+        "Como o prazo de troca conta a partir do recebimento, a equipe vai confirmar com você.",
+    ],
+)
+def test_scenario_13_accepts_the_answer_window_and_the_counting_rule(reply: str) -> None:
+    """'no prazo de até 24 horas úteis' is policy 7.3's answer window, not a deadline verdict."""
+    check = next(c for c in _scenario("13").checks if "deadline" in c.name)
+    assert check.test(_run(_turn(reply, "escalate_to_human")))
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Infelizmente está fora do prazo.",
+        "Já passou do prazo de 7 dias.",
+        "Você ainda está dentro do prazo!",
+        "O prazo de troca já acabou.",
+        "Você está no prazo de devolução.",
+    ],
+)
+def test_scenario_13_rejects_any_verdict_on_the_exchange_deadline(reply: str) -> None:
+    """The agent cannot know the receipt date: saying it is in or out of the deadline is a fail."""
+    check = next(c for c in _scenario("13").checks if "deadline" in c.name)
+    assert not check.test(_run(_turn(reply, "escalate_to_human")))
+
+
 # --- scoring ----------------------------------------------------------------------------------
 
 
