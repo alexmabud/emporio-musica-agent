@@ -7,14 +7,12 @@ Campo Grande/MS. It answers in Brazilian Portuguese, looks up live store data (p
 order status) through typed tools, and answers policy questions (returns, hours, payment, shipping) from the
 store's policy manual.
 
-> **Status: work in progress.** This README states the design decisions up front. Sections marked
-> **TODO** are filled in as the corresponding commits land (see [Roadmap](#roadmap)). Nothing below is
-> claimed as working until its commit exists.
-
 ## Contents
 
 - [Quick start](#quick-start)
 - [How it works](#how-it-works)
+- [Streamlit UI](#streamlit-ui)
+
 - [Technical decisions](#technical-decisions)
 - [Data handling](#data-handling)
 - [Assumptions](#assumptions)
@@ -23,13 +21,13 @@ store's policy manual.
 - [Known limitations](#known-limitations)
 - [With more time](#with-more-time)
 - [Use of AI coding assistants](#use-of-ai-coding-assistants)
-- [Roadmap](#roadmap)
+
 
 ## Quick start
 
-**TODO — verify each command once the scaffold commit lands.**
-
-Requirements: Python 3.11+ and a free Google AI Studio API key (https://aistudio.google.com).
+Requirements: Python 3.11+ and one free API key: Google AI Studio (https://aistudio.google.com) for the
+reference model, or Groq (https://console.groq.com) for the development model. The first run builds the
+SQLite database from `data/*.csv` (git-ignored, in `var/`); nothing else needs setting up.
 
 **With `make` (Linux/macOS/WSL):**
 
@@ -54,8 +52,11 @@ pip install -r requirements-dev.txt   # runtime deps + project (editable) + pyte
                                       # runtime only: pip install -r requirements.txt
 cp .env.example .env               # Windows: copy .env.example .env
 python -m emporio_agent.cli        # interactive CLI ('sair' to leave, '/novo' for a new chat)
+streamlit run app.py               # Streamlit chat at http://localhost:8501
 pytest                             # tests, no LLM calls
 ruff check . && ruff format --check .
+python -m evals.run --pause 15     # the eval: calls the LLM (see Evaluation)
+
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same lint and tests on every push and pull request,
@@ -69,7 +70,9 @@ on Python 3.11 with a pip cache. It needs no API key and never calls a model; `m
 | `GOOGLE_API_KEY` | Google AI Studio key (free tier), used when `LLM_MODEL` starts with `google_genai:`. |
 | `GROQ_API_KEY` | Groq key (free tier), used when `LLM_MODEL` starts with `groq:`. |
 | `LLM_FALLBACK_MODELS` | Optional reserve models, comma-separated, tried in order when the main one fails (see [Free-tier quota](#free-tier-quota)). |
+| `LLM_TEMPERATURE` | Sampling temperature (default `0.2`). |
 | `GROUNDING_MAX_RETRIES` | How many times a reply that states a price or tracking code no tool, policy or customer message supports is regenerated before the safe message is sent (default `1`; each retry is one more model call). |
+| `DB_PATH`, `ESCALATIONS_PATH`, `FEEDBACK_PATH` | Generated files, all under the git-ignored `var/` by default: the SQLite database, the cases handed to a person and the 👍/👎 votes of the Streamlit UI. |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Optional tracing. Leave `LANGSMITH_TRACING=false` to disable. |
 
 Two providers are supported and **only `LLM_MODEL` selects one**; the code does not change. Keep both
@@ -106,10 +109,32 @@ The model decides on its own whether a question needs data, policy, or neither. 
 `calculate_payment_options` and `escalate_to_human` are the legitimate exceptions: they apply policy rules
 but need a tool to do exact math or to hand the case to a person.
 
+### Repository layout
+
+```
+src/emporio_agent/   the agent: data_loader, pricing, catalog, orders, tools, prompts, validation, agent, cli, ...
+app.py               Streamlit chat (a thin layer over the same agent)
+evals/               scenarios, checks, runner, rescoring, report, results/
+examples/            five conversations generated from real runs
+tests/               pytest, deterministic (a scripted model, no LLM calls)
+data/                the original CSVs and the policy manual (contents untouched)
+docs/                assumptions.md (every decision taken where the brief was silent) and images/
+```
+
 ## Streamlit UI
 
-`make ui` opens a chat page over the same agent as the terminal. Besides the conversation it has, in the
-sidebar:
+
+`make ui` (or `streamlit run app.py`) opens a chat page over the same agent as the terminal.
+
+![Streamlit chat on the reference model: order 8 after the identity check, with the "Por dentro do agente" panel open and the thumbs under the answer](docs/images/streamlit-order-status.png)
+
+*Order 8 on the reference model (`gemini-3.5-flash`). The customer asks for the status and gives the
+e-mail, and the agent answers with the stored data. On the left, the "Por dentro do agente" panel shows
+what happened inside: the model, the tool called (`get_order_status`, e-mail masked), the grounding check
+(approved) and no case registered for a person. Under the answer, 👍/👎 lets the customer rate it. (The
+picture was taken before the chosen thumb was made green and larger, so it shows the earlier, darker style.)*
+
+Besides the conversation it has, in the sidebar:
 
 - **example buttons** (catalog, order status, return, a service the manual only mentions in passing) that
   send the question as if typed;
@@ -119,7 +144,8 @@ sidebar:
   line per turn of the conversation. It uses what the agent already exposes. E-mails and phones are masked
   (`an***@coldmail.com`, `(67) 9****-7821`) before they reach the panel.
 - **👍/👎 under every assistant answer** (not under the greeting or the system warnings). After a 👎 an optional
-  box asks what went wrong. Votes go to a local, git-ignored `var/feedback.jsonl` (`FEEDBACK_PATH`), one
+  box asks what went wrong. The chosen thumb turns green (the theme's primary color) and a little larger,
+  the other one stays gray. Votes go to a local, git-ignored `var/feedback.jsonl` (`FEEDBACK_PATH`), one
   record per answer with the time, conversation, turn, question, reply, tools called, rating and comment.
   Voting again replaces the record (the last vote wins) and clicking the same thumb again removes it.
   E-mails and phones are masked before saving, the comment included (LGPD). Nothing in the prompt or the
@@ -140,7 +166,8 @@ To try another model without editing `.env` (for example on the development prov
 make ui ARGS="--model groq:openai/gpt-oss-120b"      # or APP_LLM_MODEL=groq:openai/gpt-oss-120b make ui
 ```
 
-A chosen model replaces `LLM_MODEL` **and drops the reserve models**, so testing the UI on one provider can
+The picture above was taken on the reference model with no reserve models:
+`make ui ARGS="--model google_genai:gemini-3.5-flash"`. A chosen model replaces `LLM_MODEL` **and drops the reserve models**, so testing the UI on one provider can
 never fall back to another one and spend its quota. The page also escapes `$`, because Streamlit would
 otherwise read `R$ 549,00 ... R$ 439,20` as a math formula.
 
@@ -155,7 +182,7 @@ otherwise read `R$ 549,00 ... R$ 439,20` as a math formula.
 | Business math | Python (`pricing.py`), never the LLM | Discounts, PIX and installments must be exact and testable. |
 | Tool schemas | Pydantic arguments with enums (categories, string type) | Fewer malformed calls, and the model cannot invent a category. |
 | Model | Two providers, two roles, chosen only by `LLM_MODEL`: **`gemini-3.5-flash`** (Google AI Studio) as the reference and **`openai/gpt-oss-120b`** (Groq) for development. Temperature around 0.2. See [Why this model](#why-this-model). | Both are free and support tool calling. Gemini's daily quota is too small to iterate on a prompt, Groq's is large but slow; each does the job the other cannot. |
-| Rate limits (free tier) | Retry with exponential backoff (up to 4 retries, waiting 4, 8, 16 and 32 s, about a minute) for per-minute limits, 503/504 and network errors; **no retry for a daily quota**; a chain of reserve models; a polite message when everything is exhausted. A configurable pause between scenarios in `make eval` is still planned (slice 8). | Both free tiers throttle, in different ways (see [Free-tier quota](#free-tier-quota)). |
+| Rate limits (free tier) | Retry with exponential backoff (up to 4 retries, waiting 4, 8, 16 and 32 s, about a minute) for per-minute limits, 503/504 and network errors; **no retry for a daily quota**; a chain of reserve models; a polite message when everything is exhausted.  `make eval --pause SECONDS` spaces the scenarios for these limits. | Both free tiers throttle, in different ways (see [Free-tier quota](#free-tier-quota)). |
 | Memory | LangGraph checkpointer, one `thread_id` per session | Multi-turn context ("and how much is that one?") and order verification across turns. In-memory by default. |
 | Interface | CLI first, plus a Streamlit chat | The focus is the agent. Both interfaces are thin layers over the same agent (`emporio_agent/chat.py` holds what they share). The Streamlit page escapes `$` so prices are not rendered as math, turns WhatsApp `*bold*` into markdown bold and lets the customer rate each answer with 👍/👎 (saved locally, personal data masked). |
 | Observability | Optional LangSmith tracing | Shows every tool call and routing decision when debugging. |
@@ -205,8 +232,7 @@ the **project's real prompt and tools** and ten questions, looking at the first 
 
 `gpt-oss-120b` is the development model: it was the only one with no miss, including the complaint that the
 Flash-Lite models skipped. These numbers come from a single run and are not comparable with the Gemini ones
-below (a shorter prompt and eight questions); the comparison that counts will be produced by `make eval` on
-each model.
+below (a shorter prompt and eight questions); the comparison that counts is the full eval (see [Evaluation](#evaluation)).
 
 **Why `gemini-3.5-flash` inside the Gemini family.** The model was chosen by testing, not by name, on 2026-10-31 with the project's
 own API key. The key listed 26 "flash" models; ignoring preview, speech, image and live variants left these
@@ -235,8 +261,7 @@ category), so Flash is the default and Flash-Lite is the plan B if the free-tier
 **What this does not prove.** The routing check ran once, with a short prompt and no escalation
 instruction, so the complaint miss may disappear with the real prompt. The newest models may become
 available later and are worth re-testing. Free-tier quotas are not exposed by the API, so they were not
-compared; check them in the AI Studio dashboard. A reproducible version of this routing check will live in
-`make eval` (slice 8).
+compared; check them in the AI Studio dashboard. The scenarios of `make eval` repeat this check on the real prompt, as the trajectory of each conversation (see [Evaluation](#evaluation)).
 
 ### Free-tier quota
 
@@ -263,8 +288,7 @@ budget allows about one and a half calls per minute. A question that needs a too
 for the token window, so it takes **30 to 60 seconds** on Groq. The retry above covers that wait. Each model
 has its own budget, which is why the same reserve-model chain also helps there.
 
-Practical consequence for anyone running the project: expect to spend the free quota quickly. `make eval`
-will pause between scenarios and still needs a day's budget on several models. A paid tier or another
+Practical consequence for anyone running the project: expect to spend the free quota quickly. A complete `make eval` needs about two days of the Gemini free quota (it took two in practice, with `--pause` and `--resume`). A paid tier or another
 provider removes the limit; only `.env` changes.
 
 ### Prompt strategy
@@ -427,8 +451,7 @@ aborted. Each run is saved in `evals/results/<model-slug>.json` with the traject
 the latency, the number of model requests and the full transcript (tool calls and results included) of every
 scenario.
 
-**A complete eval may take more than one day on a free tier** (about 32 requests against roughly 20 per day on
-Gemini). Progress is saved after every scenario, and the next day
+**A complete eval may take more than one day on a free tier** (38 requests in the reference run against roughly 20 per day on Gemini). Progress is saved after every scenario, and the next day
 
 ```bash
 make eval ARGS="--model google_genai:gemini-3.5-flash --pause 15 --resume"
@@ -492,6 +515,12 @@ devolução" must fail) and the saved result was scored again **from its own tra
 call**. Only scenario 13 changed (❌ → ✅); the other 19 verdicts and every reply are identical. The change is
 logged in the result file (`rescoring`).
 
+**The complete eval ran only on the reference model, because of the free-tier limits.** Gemini's quota is
+about 20 requests a day (a full run took two days) and Groq's 8,000 tokens a minute against a prompt of
+about 4,700 tokens makes a full run slow. Groq was used for development, scenario by scenario, and for the
+routing check in [Why this model](#why-this-model); no complete run was made on it, so the table has a
+single column. `make eval-report` adds a column for every other complete result saved in `evals/results/`.
+
 **Recorded limitation (desirable checks, scenarios 17 and 18).** When asked whether the store does a guitar
 setup, the agent quotes policy 4.4 and says there is no price or lead time in the manual, and never denies
 the service, but it does not say that custom adjustments are not exchangeable. That is a better answer
@@ -499,7 +528,7 @@ missed, not a wrong one, so it is reported here and not hidden by loosening the 
 
 ## Known limitations
 
-**TODO — finalize after the build.** Known so far:
+
 
 - On the reference model, scenarios 17 and 18 (guitar setup) miss a desirable point: the reply quotes policy 4.4 and
   never denies the service, but does not say that custom adjustments are not exchangeable (see [Results](#results)).
@@ -514,14 +543,19 @@ missed, not a wrong one, so it is reported here and not hidden by loosening the 
   a customer, but a plain string comparison fails, so the grounding check normalizes spaces before comparing.
 - Reserve models are Flash-Lite, which in the routing check were more likely to skip an escalation, so quality
   drops when the main model is out of quota.
-- The free Gemini tier answers with HTTP 503 ("high demand") now and then, on any model. The agent needs a
-  retry with backoff (slice 6); even so, a busy hour can make a reply slow.
+- The free Gemini tier answers with HTTP 503 ("high demand") now and then, on any model. The agent retries with backoff, but a busy hour can still make a reply slow.
 - The full policy sits in every prompt. This is cheap at 8 pages but would not scale to a large manual.
 - Product search is filter-based plus fuzzy name matching, not semantic. Vague requests ("something warm
   for jazz") depend on the model translating them into filters.
 - The grounding check validates `R$` values and tracking codes, not every factual claim.
-- **The typing-box styling depends on Streamlit internals.** The CSS targets `data-testid="stChatInput"` and
-  its first child, which are not a public API, so `streamlit` is pinned (`==1.66.1`) and an upgrade means
+- **The evaluation is a signal, not a statistic.** Each scenario ran once, on one model, at temperature 0.2,
+  and the checks are regular expressions over Portuguese text (loose on wording, strict on facts). Another
+  run could word things differently; the saved transcripts let anyone read what was actually said.
+- **Only the reference model has a complete eval** (see [Evaluation](#evaluation)). The development model
+  was iterated scenario by scenario, so its behavior is less well known than the reference model's.
+
+- **The typing-box and thumbs styling depend on Streamlit internals.** The CSS targets `data-testid="stChatInput"`,
+  its first child and `stFeedbackButtonActive` (the selected 👍/👎), which are not a public API, so `streamlit` is pinned (`==1.66.1`) and an upgrade means
   checking the box by eye. The test harness does not render CSS, so only the page in a browser shows it.
 - **The Streamlit panel can mix sessions.** The grounding outcome shown in "Por dentro do agente" comes from
   a process-wide logger, so two browser sessions answering at the same instant may see each other's retry.
@@ -564,27 +598,30 @@ missed, not a wrong one, so it is reported here and not hidden by loosening the 
 
 ## Use of AI coding assistants
 
-**TODO — rewrite from the real history once the build is done.** Planned description:
+I used AI coding assistants for much of the typing, and the workflow is part of the repository so it can be
+inspected: [`CLAUDE.md`](CLAUDE.md), [`.claude/skills/`](.claude/skills/) and a `Co-Authored-By` trailer on the
+commits the assistant helped write.
 
-- **Planning: Claude (chat).** Used first for the initial analysis of the data, the design of the stack and
-  the writing of [`CLAUDE.md`](CLAUDE.md), the spec that drives the rest of the work.
-- **Implementation: Claude Code in VS Code**, following the skills in [`.claude/skills/`](.claude/skills/)
-  (spec, TDD slices, verification, review). Skills and `CLAUDE.md` are versioned so the workflow is visible.
-- **Division of work:** the assistant drafts code and tests slice by slice, test first. Each slice is
-  verified (tests and lint) and then **reviewed and committed by me**. Design decisions, data-quality
-  findings and the scope are mine to approve.
+- **Planning: Claude (chat).** Before any code: the analysis of the data (it found the problems listed in
+  [Data handling](#data-handling)), the design of the stack and the writing of `CLAUDE.md`, the spec that
+  drives the rest: stack, tools, cleaning rules, prompt essentials, eval scenarios, commit plan and a ship
+  checklist.
+- **Implementation: Claude Code in VS Code**, following the skills in `.claude/skills/` (spec, plan, TDD
+  slice, verification, review, ship). The history follows the slices of the commit plan: scaffold, data
+  loader, pricing, tools, prompt, agent, guardrails, evals, CI, UI, examples, README.
+- **Each slice:** the assistant wrote the failing tests first, then the code, then ran the tests and the
+  linter and reported the evidence. **I reviewed the diff and committed it**; the assistant committed and
+  pushed only when I asked.
+- **What stayed mine:** the scope, the stack and the model choice, how the conflicts in the data are resolved
+  (the two phone numbers, the ambiguous installment rule, the descriptions that contradict the specs), the rule
+  for failures in the eval (a critical failure stops the run until I decide) and the choice of the example
+  conversations.
+- **Where the assistant was wrong, and how it was caught.** Running against the real models, not the scripted
+  one, exposed the free-tier limits and several prompt failures (each rule under "Learned from real
+  conversations" fixed one). The only critical failure of the final eval was a bug in a check the assistant
+  had written: reading the saved transcript showed the agent was right, so the check was fixed with tests and
+  the result re-scored from the same transcript, with the change logged in the result file.
+- **A caveat:** tests written by the same assistant that wrote the code can share its blind spots. That is why
+  the evaluation runs on a real model and keeps the replies unedited.
 
-## Roadmap
-
-1. Project scaffold, Makefile, requirements, `.env.example`, skills
-2. Data loader with cleaning rules and SQLite
-3. Pricing rules (promo, PIX, installments) with tests
-4. Agent tools with Pydantic schemas and tests
-5. Policy extraction and system prompt
-6. `create_agent` agent with memory, and CLI (with retry on 429)
-7. Grounding validation with tests
-8. Eval scenarios and runner
-9. CI (ruff and pytest)
-10. Streamlit UI (optional)
-11. Example conversations
-12. Final README
+The LLMs the agent itself calls (Gemini, and Groq's `gpt-oss`) are components of the product, not coding assistants.

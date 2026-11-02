@@ -10,10 +10,6 @@ instrumentos musicais em Campo Grande/MS. Ele responde em português do Brasil, 
 (preços, estoque, promoções, status de pedidos) por meio de ferramentas tipadas e responde dúvidas de política
 (trocas, horários, pagamento, frete) a partir do manual de políticas da loja.
 
-> **Status: em andamento.** Este README apresenta as decisões de projeto logo de início. As seções marcadas
-> com **TODO** são preenchidas conforme os commits correspondentes são feitos (veja o [Roteiro](#roteiro)).
-> Nada abaixo é dado como funcionando até que o seu commit exista.
-
 ## Sumário
 
 - [Início rápido](#início-rápido)
@@ -27,13 +23,13 @@ instrumentos musicais em Campo Grande/MS. Ele responde em português do Brasil, 
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Com mais tempo](#com-mais-tempo)
 - [Uso de assistentes de código com IA](#uso-de-assistentes-de-código-com-ia)
-- [Roteiro](#roteiro)
+
 
 ## Início rápido
 
-**TODO — verificar cada comando quando o commit do esqueleto do projeto for feito.**
-
-Requisitos: Python 3.11+ e uma chave gratuita da API do Google AI Studio (https://aistudio.google.com).
+Requisitos: Python 3.11+ e uma chave gratuita de API: Google AI Studio (https://aistudio.google.com) para o
+modelo de referência, ou Groq (https://console.groq.com) para o modelo de desenvolvimento. A primeira execução
+monta o banco SQLite a partir de `data/*.csv` (ignorado pelo git, em `var/`); mais nada precisa ser configurado.
 
 **Com `make` (Linux/macOS/WSL):**
 
@@ -59,8 +55,11 @@ pip install -r requirements-dev.txt   # dependências de execução + projeto (e
                                       # só execução: pip install -r requirements.txt
 cp .env.example .env               # Windows: copy .env.example .env
 python -m emporio_agent.cli        # CLI interativa ('sair' para sair, '/novo' para uma nova conversa)
+streamlit run app.py               # chat em Streamlit em http://localhost:8501
 pytest                             # testes, sem chamadas ao LLM
 ruff check . && ruff format --check .
+python -m evals.run --pause 15     # a avaliação: chama o LLM (veja Avaliação)
+
 ```
 
 O GitHub Actions (`.github/workflows/ci.yml`) roda o mesmo lint e os mesmos testes a cada push e pull request,
@@ -75,7 +74,9 @@ em Python 3.11 com cache do pip. Não precisa de chave de API e nunca chama um m
 | `GOOGLE_API_KEY` | Chave do Google AI Studio (plano gratuito), usada quando `LLM_MODEL` começa com `google_genai:`. |
 | `GROQ_API_KEY` | Chave da Groq (plano gratuito), usada quando `LLM_MODEL` começa com `groq:`. |
 | `LLM_FALLBACK_MODELS` | Modelos reserva opcionais, separados por vírgula, tentados em ordem quando o principal falha (veja [Cota do plano gratuito](#cota-do-plano-gratuito)). |
+| `LLM_TEMPERATURE` | Temperatura de amostragem (padrão `0.2`). |
 | `GROUNDING_MAX_RETRIES` | Quantas vezes uma resposta que cita um preço ou código de rastreio que nenhuma ferramenta, política ou mensagem do cliente sustenta é regenerada antes de enviar a mensagem segura (padrão `1`; cada nova tentativa é mais uma chamada ao modelo). |
+| `DB_PATH`, `ESCALATIONS_PATH`, `FEEDBACK_PATH` | Arquivos gerados, todos na pasta `var/` (ignorada pelo git) por padrão: o banco SQLite, os casos passados a uma pessoa e os votos 👍/👎 da interface Streamlit. |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` | Rastreamento opcional. Deixe `LANGSMITH_TRACING=false` para desativar. |
 
 Há dois provedores suportados e **só o `LLM_MODEL` escolhe um deles**; o código não muda. Mantenha as duas
@@ -112,10 +113,33 @@ política (horário, trocas, endereço) nunca chamam uma ferramenta; perguntas s
 entrega sempre chamam. `calculate_payment_options` e `escalate_to_human` são as exceções legítimas: aplicam
 regras da política, mas precisam de uma ferramenta para fazer a conta exata ou para passar o caso a uma pessoa.
 
+### Estrutura do repositório
+
+```
+src/emporio_agent/   o agente: data_loader, pricing, catalog, orders, tools, prompts, validation, agent, cli, ...
+app.py               chat em Streamlit (camada fina sobre o mesmo agente)
+evals/               cenários, verificações, runner, reavaliação, relatório, results/
+examples/            cinco conversas geradas a partir de execuções reais
+tests/               pytest, determinístico (modelo roteirizado, sem chamadas ao LLM)
+data/                os CSVs originais e o manual de políticas (conteúdo intocado)
+docs/                assumptions.md (toda decisão tomada onde o enunciado era omisso) e images/
+```
+
 ## Interface Streamlit
 
-O `make ui` abre uma página de chat sobre o mesmo agente do terminal. Além da conversa, ela tem, na barra
-lateral:
+
+O `make ui` (ou `streamlit run app.py`) abre uma página de chat sobre o mesmo agente do terminal.
+
+![Chat em Streamlit no modelo de referência: pedido 8 depois da verificação de identidade, com o painel "Por dentro do agente" aberto e os polegares sob a resposta](docs/images/streamlit-order-status.png)
+
+*Pedido 8 no modelo de referência (`gemini-3.5-flash`). O cliente pergunta o status e informa o e-mail, e o
+agente responde com os dados registrados. À esquerda, o painel "Por dentro do agente" mostra o que
+aconteceu por dentro: o modelo, a ferramenta chamada (`get_order_status`, e-mail mascarado), a verificação
+de grounding (aprovada) e nenhum caso registrado para uma pessoa. Sob a resposta, o 👍/👎 deixa o cliente
+avaliá-la. (O print foi tirado antes de o polegar escolhido ficar verde e maior, então mostra o estilo
+anterior, mais escuro.)*
+
+Além da conversa, ela tem, na barra lateral:
 
 - **botões de exemplo** (catálogo, status de pedido, troca, um serviço que o manual só menciona de passagem)
   que enviam a pergunta como se tivesse sido digitada;
@@ -126,7 +150,8 @@ lateral:
   conversa. Usa o que o agente já expõe. E-mails e telefones são mascarados (`an***@coldmail.com`,
   `(67) 9****-7821`) antes de chegarem ao painel.
 - **👍/👎 embaixo de cada resposta do assistente** (não na saudação nem nos avisos do sistema). Depois de um
-  👎, uma caixa opcional pergunta o que deu errado. Os votos vão para um `var/feedback.jsonl` local, ignorado
+  👎, uma caixa opcional pergunta o que deu errado. O polegar escolhido fica verde (a cor primária do tema) e
+  um pouco maior, e o outro continua cinza. Os votos vão para um `var/feedback.jsonl` local, ignorado
   pelo git (`FEEDBACK_PATH`), com um registro por resposta: horário, conversa, turno, pergunta, resposta,
   ferramentas chamadas, nota e comentário. Votar de novo substitui o registro (vale o último voto) e clicar no
   mesmo polegar outra vez o remove. E-mails e telefones são mascarados antes de gravar, comentário incluído
@@ -148,7 +173,8 @@ Para testar outro modelo sem editar o `.env` (por exemplo, o provedor de desenvo
 make ui ARGS="--model groq:openai/gpt-oss-120b"      # ou APP_LLM_MODEL=groq:openai/gpt-oss-120b make ui
 ```
 
-Um modelo escolhido substitui o `LLM_MODEL` **e descarta os modelos reserva**, de modo que testar a interface
+A imagem acima foi feita no modelo de referência, sem modelos reserva:
+`make ui ARGS="--model google_genai:gemini-3.5-flash"`. Um modelo escolhido substitui o `LLM_MODEL` **e descarta os modelos reserva**, de modo que testar a interface
 em um provedor nunca cai em outro e gasta a cota dele. A página também escapa o `$`, porque o Streamlit
 leria `R$ 549,00 ... R$ 439,20` como uma fórmula matemática.
 
@@ -163,9 +189,9 @@ leria `R$ 549,00 ... R$ 439,20` como uma fórmula matemática.
 | Contas de negócio | Python (`pricing.py`), nunca o LLM | Descontos, PIX e parcelas precisam ser exatos e testáveis. |
 | Schemas das ferramentas | Argumentos Pydantic com enums (categorias, tipo de corda) | Menos chamadas malformadas, e o modelo não consegue inventar uma categoria. |
 | Modelo | Dois provedores, dois papéis, escolhidos apenas por `LLM_MODEL`: **`gemini-3.5-flash`** (Google AI Studio) como referência e **`openai/gpt-oss-120b`** (Groq) para desenvolvimento. Temperatura em torno de 0,2. Veja [Por que este modelo](#por-que-este-modelo). | Os dois são gratuitos e suportam chamada de ferramentas. A cota diária do Gemini é pequena demais para iterar num prompt; a da Groq é grande, mas lenta; cada um faz o trabalho que o outro não consegue. |
-| Limites de taxa (plano gratuito) | Nova tentativa com recuo exponencial (até 4 tentativas, esperando 4, 8, 16 e 32 s, cerca de um minuto) para limites por minuto, 503/504 e erros de rede; **sem nova tentativa para cota diária**; uma cadeia de modelos reserva; uma mensagem educada quando tudo se esgota. Uma pausa configurável entre cenários no `make eval` ainda está planejada (slice 8). | Os dois planos gratuitos limitam o uso, de maneiras diferentes (veja [Cota do plano gratuito](#cota-do-plano-gratuito)). |
+| Limites de taxa (plano gratuito) | Nova tentativa com recuo exponencial (até 4 tentativas, esperando 4, 8, 16 e 32 s, cerca de um minuto) para limites por minuto, 503/504 e erros de rede; **sem nova tentativa para cota diária**; uma cadeia de modelos reserva; uma mensagem educada quando tudo se esgota. O `make eval --pause SEGUNDOS` espaça os cenários para esses limites. | Os dois planos gratuitos limitam o uso, de maneiras diferentes (veja [Cota do plano gratuito](#cota-do-plano-gratuito)). |
 | Memória | Checkpointer do LangGraph, um `thread_id` por sessão | Contexto de várias mensagens ("e quanto custa esse?") e verificação de pedido ao longo dos turnos. Em memória por padrão. |
-| Interface | Primeiro a CLI, mais um chat em Streamlit | O foco é o agente. As duas interfaces são camadas finas sobre o mesmo agente (`emporio_agent/chat.py` guarda o que elas compartilham). A página Streamlit escapa o `$` para que os preços não sejam renderizados como matemática transforma o `*negrito*` do WhatsApp em negrito de markdown e deixa o cliente avaliar cada resposta com 👍/👎 (gravado localmente, dados pessoais mascarados). |
+| Interface | Primeiro a CLI, mais um chat em Streamlit | O foco é o agente. As duas interfaces são camadas finas sobre o mesmo agente (`emporio_agent/chat.py` guarda o que elas compartilham). A página Streamlit escapa o `$` para que os preços não sejam renderizados como matemática, transforma o `*negrito*` do WhatsApp em negrito de markdown e deixa o cliente avaliar cada resposta com 👍/👎 (gravado localmente, dados pessoais mascarados). |
 | Observabilidade | Rastreamento opcional com LangSmith | Mostra cada chamada de ferramenta e cada decisão de roteamento ao depurar. |
 
 > **Nota de privacidade (cuidado com a LGPD).** No plano gratuito, o Google pode usar o conteúdo enviado à API
@@ -216,8 +242,7 @@ olhando a primeira decisão (qual ferramenta, ou nenhuma):
 
 O `gpt-oss-120b` é o modelo de desenvolvimento: foi o único sem nenhum erro, inclusive na reclamação que os
 modelos Flash-Lite deixaram passar. Esses números vêm de uma única rodada e não são comparáveis com os do
-Gemini abaixo (um prompt mais curto e oito perguntas); a comparação que vale será produzida pelo `make eval`
-em cada modelo.
+Gemini abaixo (um prompt mais curto e oito perguntas); a comparação que vale é a avaliação completa (veja [Avaliação](#avaliação)).
 
 **Por que `gemini-3.5-flash` dentro da família Gemini.** O modelo foi escolhido por teste, não pelo nome, em
 2026-10-31, com a própria chave de API do projeto. A chave listava 26 modelos "flash"; ignorando as variantes
@@ -246,8 +271,7 @@ errada), então o Flash é o padrão e o Flash-Lite é o plano B se o limite di�
 **O que isto não prova.** A verificação de roteamento rodou uma vez, com um prompt curto e sem instrução de
 escalação, então o erro da reclamação pode desaparecer com o prompt real. Os modelos mais novos podem ficar
 disponíveis depois e vale testá-los de novo. As cotas do plano gratuito não são expostas pela API, então não
-foram comparadas; confira-as no painel do AI Studio. Uma versão reproduzível desta verificação de roteamento
-viverá no `make eval` (slice 8).
+foram comparadas; confira-as no painel do AI Studio. Os cenários do `make eval` repetem esta verificação com o prompt real, como a trajetória de cada conversa (veja [Avaliação](#avaliação)).
 
 ### Cota do plano gratuito
 
@@ -275,8 +299,7 @@ precisa de uma ferramenta faz duas chamadas e espera a janela de tokens, então 
 Groq. A nova tentativa acima cobre essa espera. Cada modelo tem o seu orçamento, e por isso a mesma cadeia de
 modelos reserva também ajuda ali.
 
-Consequência prática para quem rodar o projeto: espere gastar a cota gratuita rápido. O `make eval` pausa
-entre cenários e ainda precisa do orçamento de um dia em vários modelos. Um plano pago ou outro provedor
+Consequência prática para quem rodar o projeto: espere gastar a cota gratuita rápido. Um `make eval` completo precisa de cerca de dois dias da cota gratuita do Gemini (levou dois na prática, com `--pause` e `--resume`). Um plano pago ou outro provedor
 remove o limite; só o `.env` muda.
 
 ### Estratégia do prompt
@@ -448,8 +471,7 @@ cota diária esgotada para, guarda o que mediu e fica marcada como abortada. Cad
 requisições ao modelo e a transcrição completa (chamadas e resultados de ferramentas incluídos) de cada
 cenário.
 
-**Uma avaliação completa pode levar mais de um dia num plano gratuito** (cerca de 32 requisições contra
-aproximadamente 20 por dia no Gemini). O progresso é salvo após cada cenário e, no dia seguinte,
+**Uma avaliação completa pode levar mais de um dia num plano gratuito** (38 requisições na rodada de referência contra aproximadamente 20 por dia no Gemini). O progresso é salvo após cada cenário e, no dia seguinte,
 
 ```bash
 make eval ARGS="--model google_genai:gemini-3.5-flash --pause 15 --resume"
@@ -515,6 +537,13 @@ devolução" devem reprovar) e o resultado salvo foi reavaliado **a partir da pr
 chamada ao modelo**. Só o cenário 13 mudou (❌ → ✅); os outros 19 vereditos e todas as respostas são
 idênticos. A mudança está registrada no arquivo de resultado (`rescoring`).
 
+**A avaliação completa rodou só no modelo de referência, por causa dos limites do plano gratuito.** A cota do
+Gemini é de cerca de 20 requisições por dia (uma rodada completa levou dois dias) e os 8.000 tokens por minuto
+da Groq, contra um prompt de cerca de 4.700 tokens, tornam uma rodada completa lenta. A Groq foi usada para
+desenvolvimento, cenário por cenário, e para a verificação de roteamento em [Por que este modelo](#por-que-este-modelo);
+nenhuma rodada completa foi feita nela, então a tabela tem uma única coluna. O `make eval-report` acrescenta uma
+coluna para cada outro resultado completo salvo em `evals/results/`.
+
 **Limitação registrada (verificações desejáveis, cenários 17 e 18).** Perguntado se a loja faz regulagem ou
 setup de violão/guitarra, o agente cita a política 4.4 e diz que o manual não traz preço nem prazo, e nunca
 nega o serviço, mas não diz que ajustes sob encomenda não são trocáveis. É uma resposta melhor que faltou,
@@ -522,7 +551,7 @@ não uma resposta errada; por isso fica registrada aqui, e a verificação não 
 
 ## Limitações conhecidas
 
-**TODO — finalizar depois da construção.** O que se sabe até agora:
+
 
 - No modelo de referência, os cenários 17 e 18 (setup de guitarra) deixam de cumprir um ponto desejável: a resposta
   cita a política 4.4 e nunca nega o serviço, mas não diz que ajustes sob encomenda não são trocáveis (veja [Resultados](#resultados)).
@@ -539,15 +568,19 @@ não uma resposta errada; por isso fica registrada aqui, e a verificação não 
   os espaços antes de comparar.
 - Os modelos reserva são Flash-Lite, que na verificação de roteamento tiveram mais chance de deixar passar uma
   escalação, então a qualidade cai quando o modelo principal fica sem cota.
-- O plano gratuito do Gemini responde com HTTP 503 ("high demand") de vez em quando, em qualquer modelo. O
-  agente precisa de uma nova tentativa com recuo (slice 6); mesmo assim, uma hora de pico pode deixar a
-  resposta lenta.
+- O plano gratuito do Gemini responde com HTTP 503 ("high demand") de vez em quando, em qualquer modelo. O agente tenta de novo com recuo, mas uma hora de pico ainda pode deixar a resposta lenta.
 - A política completa vai em todo prompt. Isso é barato com 8 páginas, mas não escalaria para um manual grande.
 - A busca de produtos é baseada em filtros mais correspondência aproximada de nomes, não semântica. Pedidos
   vagos ("algo quente para jazz") dependem de o modelo traduzi-los em filtros.
 - A verificação de grounding valida valores em `R$` e códigos de rastreio, não todas as afirmações factuais.
-- **O estilo da caixa de digitação depende de partes internas do Streamlit.** O CSS mira
-  `data-testid="stChatInput"` e o seu primeiro filho, que não são uma API pública, então o `streamlit` é
+- **A avaliação é um sinal, não uma estatística.** Cada cenário rodou uma vez, em um modelo, com temperatura 0,2,
+  e as verificações são expressões regulares sobre texto em português (soltas na redação, rígidas nos fatos).
+  Outra rodada poderia redigir de outro jeito; as transcrições salvas deixam qualquer pessoa ler o que foi dito.
+- **Só o modelo de referência tem avaliação completa** (veja [Avaliação](#avaliação)). O modelo de
+  desenvolvimento foi iterado cenário por cenário, então seu comportamento é menos conhecido que o do de referência.
+
+- **O estilo da caixa de digitação e dos polegares depende de partes internas do Streamlit.** O CSS mira
+  `data-testid="stChatInput"`, o seu primeiro filho e `stFeedbackButtonActive` (o 👍/👎 escolhido), que não são uma API pública, então o `streamlit` é
   fixado (`==1.66.1`) e uma atualização exige conferir a caixa a olho. O harness de testes não renderiza CSS,
   então só a página num navegador mostra isso.
 - **O painel do Streamlit pode misturar sessões.** O resultado do grounding exibido em "Por dentro do agente"
@@ -594,28 +627,29 @@ não uma resposta errada; por isso fica registrada aqui, e a verificação não 
 
 ## Uso de assistentes de código com IA
 
-**TODO — reescrever a partir do histórico real quando a construção terminar.** Descrição planejada:
+Usei assistentes de código com IA para boa parte da digitação, e o fluxo de trabalho faz parte do repositório,
+para poder ser inspecionado: o [`CLAUDE.md`](CLAUDE.md), as [`.claude/skills/`](.claude/skills/) e um trailer
+`Co-Authored-By` nos commits que o assistente ajudou a escrever.
 
-- **Planejamento: Claude (chat).** Usado primeiro para a análise inicial dos dados, o desenho da stack e a
-  escrita do [`CLAUDE.md`](CLAUDE.md), a especificação que conduz o resto do trabalho.
-- **Implementação: Claude Code no VS Code**, seguindo as skills em [`.claude/skills/`](.claude/skills/)
-  (especificação, slices com TDD, verificação, revisão). As skills e o `CLAUDE.md` são versionados para que o
-  fluxo de trabalho fique visível.
-- **Divisão do trabalho:** o assistente escreve código e testes slice por slice, começando pelo teste. Cada
-  slice é verificado (testes e lint) e depois **revisado e commitado por mim**. As decisões de projeto, os
-  achados sobre a qualidade dos dados e o escopo são meus para aprovar.
+- **Planejamento: Claude (chat).** Antes de qualquer código: a análise dos dados (ela encontrou os problemas
+  listados em [Tratamento dos dados](#tratamento-dos-dados)), o desenho da stack e a escrita do `CLAUDE.md`, a
+  especificação que conduz o resto: stack, ferramentas, regras de limpeza, essência do prompt, cenários de
+  avaliação, plano de commits e uma lista de verificação de entrega.
+- **Implementação: Claude Code no VS Code**, seguindo as skills em `.claude/skills/` (especificação, plano,
+  slice com TDD, verificação, revisão, entrega). O histórico segue os slices do plano de commits: esqueleto,
+  carregador de dados, preços, ferramentas, prompt, agente, guardrails, avaliações, CI, interface, exemplos, README.
+- **A cada slice:** o assistente escreveu primeiro os testes que falham, depois o código, depois rodou os testes
+  e o linter e relatou as evidências. **Eu revisei o diff e fiz o commit**; o assistente só commitou e fez push
+  quando eu pedi.
+- **O que ficou comigo:** o escopo, a stack e a escolha do modelo, como se resolvem os conflitos nos dados (os
+  dois telefones, a regra ambígua de parcelas, as descrições que contradizem as especificações), a regra para
+  falhas na avaliação (uma falha crítica para a rodada até eu decidir) e a escolha das conversas de exemplo.
+- **Onde o assistente errou, e como foi percebido.** Rodar contra os modelos reais, e não o roteirizado, expôs
+  os limites do plano gratuito e várias falhas de prompt (cada regra em "Aprendido em conversas reais"
+  corrigiu uma). A única falha crítica da avaliação final foi um bug numa verificação que o próprio assistente
+  tinha escrito: ler a transcrição salva mostrou que o agente estava certo, então a verificação foi corrigida
+  com testes e o resultado reavaliado a partir da mesma transcrição, com a mudança registrada no arquivo.
+- **Uma ressalva:** testes escritos pelo mesmo assistente que escreveu o código podem compartilhar os pontos cegos
+  dele. Por isso a avaliação roda num modelo real e mantém as respostas sem edição.
 
-## Roteiro
-
-1. Esqueleto do projeto, Makefile, requirements, `.env.example`, skills
-2. Carregador de dados com regras de limpeza e SQLite
-3. Regras de preço (promoção, PIX, parcelas) com testes
-4. Ferramentas do agente com schemas Pydantic e testes
-5. Extração das políticas e prompt do sistema
-6. Agente com `create_agent`, memória e CLI (com nova tentativa em 429)
-7. Validação de grounding com testes
-8. Cenários de avaliação e runner
-9. CI (ruff e pytest)
-10. Interface Streamlit (opcional)
-11. Conversas de exemplo
-12. README final
+Os LLMs que o próprio agente chama (Gemini e o `gpt-oss` da Groq) são componentes do produto, não assistentes de código.

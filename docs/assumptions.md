@@ -241,9 +241,10 @@ with uniform keys per category.
   `list_active_promotions`, `escalate_to_human`, no tool, `escalate_to_human`, `escalate_to_human`, no
   tool, no tool). Scenario 18 ("vocês fazem setup na minha guitarra?") checks that the partial-information
   rule generalizes: the prompt example is about "regulagem de violão" and 18 is deliberately worded
-  differently. The runner itself is slice 8; these rows are its spec.
-- **Not yet validated with a real model.** The wording is tested for presence only; whether Gemini and Groq
-  follow it is what the slice 8 eval will show.
+  differently. The runner is `evals/run.py`; these rows are its spec.
+- **Validated with the reference model.** The wording was tested for presence in the unit tests, and the
+  complete eval on `gemini-3.5-flash` passes every critical check of scenarios 10 to 18 (see the README,
+  Evaluation). Groq was not run in full.
 
 ## Tone (prompt)
 
@@ -251,7 +252,7 @@ with uniform keys per category.
   say "nossas políticas" and never "manual" or "documento" to the customer (the instructions to the model
   still say "manual"). A real answer had said "no nosso manual".
 
-## Eval design (slice 8)
+## Eval design
 
 - **Two levels of criteria.** Critical checks decide a scenario's pass/fail; desirable checks are reported
   apart. This keeps a safe but incomplete answer (scenarios 17 and 18 on the development model) from
@@ -326,6 +327,12 @@ with uniform keys per category.
   box has to be looked at in a browser. The harness only checks that the CSS is emitted with the right
   selector and values; it cannot render it. The green is read from `theme.primaryColor` with the same value as
   fallback, so the config stays the single source.
+- **The chosen thumb is green and larger.** `feedback_css` targets `data-testid="stFeedbackButtonActive"` (the
+  selected 👍/👎; the other one is `stFeedbackButton`, left with Streamlit's gray) and sets the theme's
+  `primaryColor` with `transform: scale(1.25)`. The icon inherits the button's color, so only the button is
+  styled. Checked in a real browser (headless Chromium, scripted model): the selected button computed to
+  `rgb(31, 157, 85)` and 30 px wide against 24 px, and the other stayed `rgba(49, 51, 63, 0.6)`. The pin on
+  Streamlit covers this CSS too; the tests only check that it is emitted.
 - **Welcome and placeholder are UI texts, not the prompt.** They are fixed strings in `app.py`; the welcome
   tells the customer where to type and that the examples are in the sidebar.
 - **Customer feedback (👍/👎) is local and masked.** `st.feedback("thumbs")` under each assistant answer
