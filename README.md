@@ -386,9 +386,18 @@ Where the brief or the data was ambiguous, a reasonable interpretation was chose
 
 ## Example conversations
 
-**TODO.** Between 3 and 5 transcripts will be added under [`examples/`](examples/), generated from real runs
-of the agent, not hand-written. They will cover: a catalog search, a price lookup, a policy question, an
-order-status flow with identity check, and an out-of-scope request.
+Five real conversations, taken from the reference-model run of the eval (`google_genai:gemini-3.5-flash`,
+[`evals/results/google_genai-gemini-3.5-flash.json`](evals/results/google_genai-gemini-3.5-flash.json)). They
+are **not written by hand and the replies are not edited**; each file lists, under every answer, the tools the
+agent called. The customer speaks Brazilian Portuguese, so do the conversations.
+
+| Example | Eval scenario | What it demonstrates |
+|---|---|---|
+| [01 – Return policy](examples/01-return-policy.md) | 3 | A policy question answered from the manual in the prompt: **no tool** is called (7 days from receipt, original packaging, refund in 10 business days). |
+| [02 – Order status with identity check](examples/02-order-status-identity-check.md) | 4 | A **live data lookup** behind the LGPD check: the agent asks for the e-mail or phone first and only then calls `get_order_status`. Two turns. |
+| [03 – PIX on a promotion](examples/03-pix-on-promotion.md) | 8 | **Business math in code**, not in the prompt: the product is on a 20% promotion, so the 5% PIX discount does not stack (`get_product_details` + `calculate_payment_options`). |
+| [04 – Out of scope](examples/04-out-of-scope.md) | 10 | A short, kind refusal of an off-topic question that does not answer it, says what the store can do and invites the customer to the current promotions. No tool. |
+| [05 – Edge case: escalation](examples/05-edge-case-escalation.md) | 13 | A **borderline policy case** (the 8th day, receipt date unknown): the agent registers a case for the manager (`escalate_to_human`) and gives no verdict on the deadline. |
 
 ## Evaluation
 

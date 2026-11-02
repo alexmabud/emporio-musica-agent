@@ -405,10 +405,18 @@ Onde o enunciado ou os dados eram ambíguos, uma interpretação razoável foi e
 
 ## Conversas de exemplo
 
-**TODO.** Entre 3 e 5 transcrições serão adicionadas em [`examples/`](examples/), geradas a partir de
-execuções reais do agente, não escritas à mão. Elas vão cobrir: uma busca no catálogo, uma consulta de preço,
-uma pergunta de política, um fluxo de status de pedido com verificação de identidade e um pedido fora de
-escopo.
+Cinco conversas reais, tiradas da rodada do modelo de referência da avaliação (`google_genai:gemini-3.5-flash`,
+[`evals/results/google_genai-gemini-3.5-flash.json`](evals/results/google_genai-gemini-3.5-flash.json)). Elas
+**não foram escritas à mão e as respostas não foram editadas**; cada arquivo lista, sob cada resposta, as
+ferramentas que o agente chamou. O cliente fala português do Brasil, e as conversas também.
+
+| Exemplo | Cenário da avaliação | O que demonstra |
+|---|---|---|
+| [01 – Política de devolução](examples/01-return-policy.md) | 3 | Uma pergunta de política respondida pelo manual que está no prompt: **nenhuma ferramenta** é chamada (7 dias a partir do recebimento, embalagem original, reembolso em 10 dias úteis). |
+| [02 – Status do pedido com verificação de identidade](examples/02-order-status-identity-check.md) | 4 | Uma **consulta a dados em tempo real** atrás da verificação da LGPD: o agente pede primeiro o e-mail ou telefone e só então chama `get_order_status`. Dois turnos. |
+| [03 – PIX em promoção](examples/03-pix-on-promotion.md) | 8 | **Conta de negócio no código**, não no prompt: o produto está com 20% de desconto, então os 5% do PIX não se acumulam (`get_product_details` + `calculate_payment_options`). |
+| [04 – Fora de escopo](examples/04-out-of-scope.md) | 10 | Uma recusa curta e gentil de uma pergunta fora do assunto, sem respondê-la, dizendo o que a loja pode fazer e convidando o cliente a ver as promoções atuais. Sem ferramenta. |
+| [05 – Caso limite: escalação](examples/05-edge-case-escalation.md) | 13 | Um **caso limite de política** (8º dia, data de recebimento desconhecida): o agente registra um caso para o gerente (`escalate_to_human`) e não dá veredito sobre o prazo. |
 
 ## Avaliação
 
