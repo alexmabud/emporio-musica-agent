@@ -9,6 +9,16 @@ store's policy manual.
 
 ## At a glance
 
+### Deliverables checklist
+
+The three deliverables of the brief and where each one is.
+
+| # | Deliverable (from the brief) | Where it is |
+|---|---|---|
+| 1 | Public repository with real commit history | The [commit history](https://github.com/alexmabud/emporio-musica-agent/commits/main) on GitHub: incremental commits, one per slice of work. |
+| 2 | README: setup, technical decisions, known limitations and what to do with more time, use of AI coding assistants | Setup: [Quick start](#quick-start). Decisions: [Technical decisions](#technical-decisions). Limitations: [Known limitations](#known-limitations) and [With more time](#with-more-time). AI: [Use of AI coding assistants](#use-of-ai-coding-assistants). |
+| 3 | 3 to 5 example conversations, at least one non-trivial | [`examples/`](examples/): 5 conversations generated from the real run of the agent, not edited (see [Example conversations](#example-conversations)). Non-trivial ones: a live lookup behind the identity check (02), rules applied in code (03) and a policy case escalated to a person (05). |
+
 ### Decisions
 
 The five decisions the brief asks to justify, in two lines each (the details are in the linked sections).

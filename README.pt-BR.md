@@ -12,6 +12,16 @@ instrumentos musicais em Campo Grande/MS. Ele responde em português do Brasil, 
 
 ## Em resumo
 
+### Checklist dos entregáveis
+
+Os três entregáveis do enunciado e onde está cada um.
+
+| # | Entregável (do enunciado) | Onde está |
+|---|---|---|
+| 1 | Repositório público com histórico de commits real | O [histórico de commits](https://github.com/alexmabud/emporio-musica-agent/commits/main) no GitHub: commits incrementais, um por etapa de trabalho. |
+| 2 | README: instruções para rodar, decisões técnicas, limitações conhecidas e o que faria com mais tempo, uso de assistentes de código | Instruções: [Início rápido](#início-rápido). Decisões: [Decisões técnicas](#decisões-técnicas). Limitações: [Limitações conhecidas](#limitações-conhecidas) e [Com mais tempo](#com-mais-tempo). IA: [Uso de assistentes de código com IA](#uso-de-assistentes-de-código-com-ia). |
+| 3 | 3 a 5 conversas de exemplo, ao menos uma não trivial | [`examples/`](examples/): 5 conversas geradas a partir da execução real do agente, sem edição (veja [Conversas de exemplo](#conversas-de-exemplo)). As não triviais: uma consulta em tempo real atrás da verificação de identidade (02), regras aplicadas em código (03) e um caso de política escalado para uma pessoa (05). |
+
 ### Decisões
 
 As cinco decisões que o enunciado pede para justificar, em duas linhas cada (os detalhes estão nas seções
